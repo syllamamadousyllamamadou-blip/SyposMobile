@@ -90,7 +90,7 @@ public struct CartSheetView: View {
                             HStack {
                                 Label("Code: \(promo.code) (-\(Int(promo.discountPercent))%)", systemImage: "tag.fill")
                                     .foregroundColor(.green)
-                                    .bold()
+                                    .font(.subheadline.weight(.bold))
                                 Spacer()
                                 Button("Retirer") { viewModel.removePromoCode() }
                                     .foregroundColor(.red)
