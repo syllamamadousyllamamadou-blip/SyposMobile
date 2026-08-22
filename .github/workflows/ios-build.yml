@@ -23,7 +23,6 @@ jobs:
       - name: Build iOS App
         run: |
           cd ios
-          set -o pipefail
           xcodebuild clean build \
             -project SyposMobile.xcodeproj \
             -scheme SyposMobile \
@@ -32,8 +31,7 @@ jobs:
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            2>&1 | tee /tmp/xcodebuild.log || { echo "=== BUILD ERROR ==="; tail -n 80 /tmp/xcodebuild.log; exit 1; }
+            CODE_SIGN_IDENTITY=""
 
       - name: Package Payload to .IPA
         run: |
