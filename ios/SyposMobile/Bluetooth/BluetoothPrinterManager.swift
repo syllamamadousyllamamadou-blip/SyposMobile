@@ -28,7 +28,7 @@ public struct LabelPrintOptions {
         printPrice: Bool = true,
         printBarcodeRaster: Bool = true,
         printSerialNumber: Bool = true,
-        serialNumber: String? = null
+        serialNumber: String? = nil
     ) {
         self.printShopHeader = printShopHeader
         self.printProductName = printProductName
