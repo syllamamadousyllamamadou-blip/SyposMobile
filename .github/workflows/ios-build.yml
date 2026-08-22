@@ -29,10 +29,10 @@ jobs:
             -destination "generic/platform=iOS" \
             -configuration Release \
             -derivedDataPath build/DerivedData \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_ALLOWED=YES \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            PROVISIONING_PROFILE=""
+            CODE_SIGN_IDENTITY="-" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
 
       - name: Package Payload to .IPA
         run: |
