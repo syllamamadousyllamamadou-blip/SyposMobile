@@ -7,9 +7,33 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		1001 /* App */ = {isa = PBXBuildFile; fileRef = 2001 /* SyposMobileApp.swift */; };
-		1002 /* ContentView */ = {isa = PBXBuildFile; fileRef = 2002 /* ContentView.swift */; };
-		1003 /* Info.plist */ = {isa = PBXBuildFile; fileRef = 2003 /* Info.plist */; };
+		1001 /* SyposMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2001 /* SyposMobileApp.swift */; };
+		1002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2002 /* ContentView.swift */; };
+		1003 /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2003 /* Info.plist */; };
+		1004 /* Enums.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2004 /* Enums.swift */; };
+		1005 /* Product.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2005 /* Product.swift */; };
+		1006 /* Ticket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2006 /* Ticket.swift */; };
+		1007 /* Customer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2007 /* Customer.swift */; };
+		1008 /* DataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2008 /* DataStore.swift */; };
+		1009 /* BluetoothPrinterManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2009 /* BluetoothPrinterManager.swift */; };
+		1010 /* CameraBarcodeScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2010 /* CameraBarcodeScannerView.swift */; };
+		1011 /* LicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2011 /* LicenseManager.swift */; };
+		1012 /* PdfExportManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2012 /* PdfExportManager.swift */; };
+		1013 /* PosViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2013 /* PosViewModel.swift */; };
+		1014 /* ProductViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2014 /* ProductViewModel.swift */; };
+		1015 /* HistoryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2015 /* HistoryViewModel.swift */; };
+		1016 /* ReportViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2016 /* ReportViewModel.swift */; };
+		1017 /* CustomerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2017 /* CustomerViewModel.swift */; };
+		1018 /* PosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2018 /* PosView.swift */; };
+		1019 /* CartSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2019 /* CartSheetView.swift */; };
+		1020 /* ProductListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2020 /* ProductListView.swift */; };
+		1021 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2021 /* HistoryView.swift */; };
+		1022 /* ReportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2022 /* ReportView.swift */; };
+		1023 /* CustomerListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2023 /* CustomerListView.swift */; };
+		1024 /* ToolsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2024 /* ToolsView.swift */; };
+		1025 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2025 /* SettingsView.swift */; };
+		1026 /* PinAuthSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2026 /* PinAuthSheetView.swift */; };
+		1027 /* LicenseActivationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2027 /* LicenseActivationView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -17,6 +41,30 @@
 		2002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/App/ContentView.swift"; sourceTree = "<group>"; };
 		2003 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "SyposMobile/Resources/Info.plist"; sourceTree = "<group>"; };
 		2004 /* SyposMobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "SyposMobile.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		20040 /* Enums.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Models/Enums.swift"; sourceTree = "<group>"; };
+		2005 /* Product.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Models/Product.swift"; sourceTree = "<group>"; };
+		2006 /* Ticket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Models/Ticket.swift"; sourceTree = "<group>"; };
+		2007 /* Customer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Models/Customer.swift"; sourceTree = "<group>"; };
+		2008 /* DataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Database/DataStore.swift"; sourceTree = "<group>"; };
+		2009 /* BluetoothPrinterManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Bluetooth/BluetoothPrinterManager.swift"; sourceTree = "<group>"; };
+		2010 /* CameraBarcodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Scanner/CameraBarcodeScannerView.swift"; sourceTree = "<group>"; };
+		2011 /* LicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Helpers/LicenseManager.swift"; sourceTree = "<group>"; };
+		2012 /* PdfExportManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Helpers/PdfExportManager.swift"; sourceTree = "<group>"; };
+		2013 /* PosViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/ViewModels/PosViewModel.swift"; sourceTree = "<group>"; };
+		2014 /* ProductViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/ViewModels/ProductViewModel.swift"; sourceTree = "<group>"; };
+		2015 /* HistoryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/ViewModels/HistoryViewModel.swift"; sourceTree = "<group>"; };
+		2016 /* ReportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/ViewModels/ReportViewModel.swift"; sourceTree = "<group>"; };
+		2017 /* CustomerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/ViewModels/CustomerViewModel.swift"; sourceTree = "<group>"; };
+		2018 /* PosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Views/Pos/PosView.swift"; sourceTree = "<group>"; };
+		2019 /* CartSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Views/Pos/CartSheetView.swift"; sourceTree = "<group>"; };
+		2020 /* ProductListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Views/Product/ProductListView.swift"; sourceTree = "<group>"; };
+		2021 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Views/History/HistoryView.swift"; sourceTree = "<group>"; };
+		2022 /* ReportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Views/Report/ReportView.swift"; sourceTree = "<group>"; };
+		2023 /* CustomerListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Views/Customer/CustomerListView.swift"; sourceTree = "<group>"; };
+		2024 /* ToolsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Views/Tools/ToolsView.swift"; sourceTree = "<group>"; };
+		2025 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Views/Settings/SettingsView.swift"; sourceTree = "<group>"; };
+		2026 /* PinAuthSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Views/Auth/PinAuthSheetView.swift"; sourceTree = "<group>"; };
+		2027 /* LicenseActivationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyposMobile/Views/Auth/LicenseActivationView.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44,6 +92,30 @@
 				2001 /* SyposMobileApp.swift */,
 				2002 /* ContentView.swift */,
 				2003 /* Info.plist */,
+				20040 /* Enums.swift */,
+				2005 /* Product.swift */,
+				2006 /* Ticket.swift */,
+				2007 /* Customer.swift */,
+				2008 /* DataStore.swift */,
+				2009 /* BluetoothPrinterManager.swift */,
+				2010 /* CameraBarcodeScannerView.swift */,
+				2011 /* LicenseManager.swift */,
+				2012 /* PdfExportManager.swift */,
+				2013 /* PosViewModel.swift */,
+				2014 /* ProductViewModel.swift */,
+				2015 /* HistoryViewModel.swift */,
+				2016 /* ReportViewModel.swift */,
+				2017 /* CustomerViewModel.swift */,
+				2018 /* PosView.swift */,
+				2019 /* CartSheetView.swift */,
+				2020 /* ProductListView.swift */,
+				2021 /* HistoryView.swift */,
+				2022 /* ReportView.swift */,
+				2023 /* CustomerListView.swift */,
+				2024 /* ToolsView.swift */,
+				2025 /* SettingsView.swift */,
+				2026 /* PinAuthSheetView.swift */,
+				2027 /* LicenseActivationView.swift */,
 			);
 			path = SyposMobile;
 			sourceTree = "<group>";
@@ -106,6 +178,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1003 /* Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +191,30 @@
 			files = (
 				1001 /* SyposMobileApp.swift in Sources */,
 				1002 /* ContentView.swift in Sources */,
+				1004 /* Enums.swift in Sources */,
+				1005 /* Product.swift in Sources */,
+				1006 /* Ticket.swift in Sources */,
+				1007 /* Customer.swift in Sources */,
+				1008 /* DataStore.swift in Sources */,
+				1009 /* BluetoothPrinterManager.swift in Sources */,
+				1010 /* CameraBarcodeScannerView.swift in Sources */,
+				1011 /* LicenseManager.swift in Sources */,
+				1012 /* PdfExportManager.swift in Sources */,
+				1013 /* PosViewModel.swift in Sources */,
+				1014 /* ProductViewModel.swift in Sources */,
+				1015 /* HistoryViewModel.swift in Sources */,
+				1016 /* ReportViewModel.swift in Sources */,
+				1017 /* CustomerViewModel.swift in Sources */,
+				1018 /* PosView.swift in Sources */,
+				1019 /* CartSheetView.swift in Sources */,
+				1020 /* ProductListView.swift in Sources */,
+				1021 /* HistoryView.swift in Sources */,
+				1022 /* ReportView.swift in Sources */,
+				1023 /* CustomerListView.swift in Sources */,
+				1024 /* ToolsView.swift in Sources */,
+				1025 /* SettingsView.swift in Sources */,
+				1026 /* PinAuthSheetView.swift in Sources */,
+				1027 /* LicenseActivationView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
