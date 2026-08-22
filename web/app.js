@@ -330,6 +330,29 @@ async function sendToPrinter(rawBytes) {
 // ==========================================
 // 6. RECEIPT GENERATOR & PRINTING
 // ==========================================
+function generateReceiptPlainText(ticket) {
+  const dateStr = new Date(ticket.date).toLocaleString('fr-FR');
+  let itemsTxt = '';
+  ticket.items.forEach(it => {
+    itemsTxt += `${it.productName}\n  ${it.qty} x ${it.price.toLocaleString('fr-FR')} CFA = ${(it.price * it.qty).toLocaleString('fr-FR')} CFA\n`;
+  });
+
+  return `${STATE.settings.shopName.toUpperCase()}
+${STATE.settings.shopAddress}
+Tel: ${STATE.settings.shopPhone}
+--------------------------------
+Ticket: ${ticket.number}
+Date: ${dateStr}
+Vendeur: ${STATE.settings.sellerName}
+--------------------------------
+${itemsTxt}--------------------------------
+TOTAL NET: ${ticket.totalAmount.toLocaleString('fr-FR')} CFA
+Reglement: ${ticket.paymentMethod.toUpperCase()}
+--------------------------------
+${STATE.settings.receiptFooter}
+${STATE.settings.showPublisherSignature ? STATE.settings.publisherSignatureText : ''}`;
+}
+
 function generateReceiptHtml(ticket) {
   const dateStr = new Date(ticket.date).toLocaleString('fr-FR');
   let itemsHtml = '';
@@ -496,7 +519,24 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('modalReceipt').classList.add('active');
   });
 
-  // Print Receipt Button
+  // Print via Thermer BLE App
+  document.getElementById('btnPrintThermerBtn').addEventListener('click', () => {
+    if (STATE.tickets.length === 0) return;
+    const t = STATE.tickets[0];
+    const text = generateReceiptPlainText(t);
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+    }
+    if (navigator.share) {
+      navigator.share({ title: 'Ticket ' + t.number, text: text }).catch(() => {
+        window.location.href = "thermer://";
+      });
+    } else {
+      window.location.href = "thermer://";
+    }
+  });
+
+  // Print Receipt Button (Standard / PDF)
   document.getElementById('btnPrintReceiptBtn').addEventListener('click', () => {
     window.print();
   });
