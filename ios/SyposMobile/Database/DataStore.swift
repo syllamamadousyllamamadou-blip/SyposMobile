@@ -5,7 +5,7 @@ public class DataStore: ObservableObject {
     public static let shared = DataStore()
 
     @Published public var products: [Product] = []
-    @Published public var categories: [Category] = []
+    @Published public var categories: [ProductCategory] = []
     @Published public var tickets: [Ticket] = []
     @Published public var customers: [Customer] = []
     @Published public var expenses: [Expense] = []
@@ -31,7 +31,7 @@ public class DataStore: ObservableObject {
 
     public func loadAll() {
         products = load([Product].self, from: "products") ?? defaultProducts()
-        categories = load([Category].self, from: "categories") ?? defaultCategories()
+        categories = load([ProductCategory].self, from: "categories") ?? defaultCategories()
         tickets = load([Ticket].self, from: "tickets") ?? []
         customers = load([Customer].self, from: "customers") ?? defaultCustomers()
         expenses = load([Expense].self, from: "expenses") ?? []
@@ -203,12 +203,12 @@ public class DataStore: ObservableObject {
 
     // MARK: - Initial Seed Data
 
-    private func defaultCategories() -> [Category] {
+    private func defaultCategories() -> [ProductCategory] {
         [
-            Category(name: "Alimentation", colorHex: "#10B981"),
-            Category(name: "Boissons", colorHex: "#3B82F6"),
-            Category(name: "Hygiène", colorHex: "#EC4899"),
-            Category(name: "Divers", colorHex: "#8B5CF6")
+            ProductCategory(name: "Alimentation", colorHex: "#10B981"),
+            ProductCategory(name: "Boissons", colorHex: "#3B82F6"),
+            ProductCategory(name: "Hygiène", colorHex: "#EC4899"),
+            ProductCategory(name: "Divers", colorHex: "#8B5CF6")
         ]
     }
 

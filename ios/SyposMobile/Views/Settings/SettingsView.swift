@@ -94,9 +94,12 @@ public struct SettingsView: View {
                         HStack {
                             Text("Taux de TVA (%)")
                             Spacer()
-                            TextField("18", value: $dataStore.settings.taxRatePercent, format: .number)
-                                .keyboardType(.decimalPad)
-                                .multilineTextAlignment(.trailing)
+                            TextField("18", text: Binding(
+                                get: { "\(Int(dataStore.settings.taxRatePercent))" },
+                                set: { dataStore.settings.taxRatePercent = Double($0) ?? 18.0 }
+                            ))
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
                         }
                     }
                 }

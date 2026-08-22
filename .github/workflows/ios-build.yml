@@ -23,10 +23,10 @@ jobs:
       - name: Build iOS App
         run: |
           cd ios
-          xcodebuild build \
+          xcodebuild clean build \
             -project SyposMobile.xcodeproj \
             -scheme SyposMobile \
-            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
             -configuration Release \
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \

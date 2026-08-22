@@ -1,6 +1,6 @@
 import Foundation
 
-public struct Product: Identifiable, Codable, Equatable {
+public struct Product: Identifiable, Codable, Equatable, Hashable {
     public var id: String
     public var name: String
     public var salePrice: Double
@@ -34,7 +34,7 @@ public struct Product: Identifiable, Codable, Equatable {
     }
 }
 
-public struct Category: Identifiable, Codable, Equatable {
+public struct ProductCategory: Identifiable, Codable, Equatable, Hashable {
     public var id: String
     public var name: String
     public var colorHex: String?

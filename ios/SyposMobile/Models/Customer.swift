@@ -1,6 +1,6 @@
 import Foundation
 
-public struct Customer: Identifiable, Codable, Equatable {
+public struct Customer: Identifiable, Codable, Equatable, Hashable {
     public var id: String
     public var name: String
     public var phone: String?
@@ -25,7 +25,7 @@ public struct Customer: Identifiable, Codable, Equatable {
     }
 }
 
-public struct Expense: Identifiable, Codable, Equatable {
+public struct Expense: Identifiable, Codable, Equatable, Hashable {
     public var id: String
     public var date: Date
     public var amount: Double
@@ -47,13 +47,13 @@ public struct Expense: Identifiable, Codable, Equatable {
     }
 }
 
-public struct PromoCode: Identifiable, Codable, Equatable {
+public struct PromoCode: Identifiable, Codable, Equatable, Hashable {
     public var id: String
     public var code: String
     public var discountPercent: Double
     public var maxUsage: Int
     public var currentUsage: Int
-    public var isActive: BooleanLiteralType
+    public var isActive: Bool
 
     public init(
         id: String = UUID().uuidString,
