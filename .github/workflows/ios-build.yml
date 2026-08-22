@@ -1,0 +1,58 @@
+name: iOS Build & OTA Distribution
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build SyposMobile iOS App (.ipa)
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode Version
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Build Archive
+        run: |
+          cd ios
+          xcodebuild clean archive \
+            -project SyposMobile.xcodeproj \
+            -scheme SyposMobile \
+            -configuration Release \
+            -archivePath build/SyposMobile.xcarchive \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE=""
+
+      - name: Package Payload to .IPA
+        run: |
+          cd ios
+          mkdir -p build/Payload
+          cp -r build/SyposMobile.xcarchive/Products/Applications/SyposMobile.app build/Payload/
+          cd build
+          zip -r SyposMobile.ipa Payload
+          ls -lh SyposMobile.ipa
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SyposMobile-iOS-IPA
+          path: ios/build/SyposMobile.ipa
+
+      - name: Upload OTA Installation Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: SyposMobile-OTA-Package
+          path: |
+            ios/build/SyposMobile.ipa
+            ios/ota/manifest.plist
+            ios/ota/index.html
