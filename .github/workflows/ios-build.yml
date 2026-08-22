@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-ios:
     name: Build SyposMobile iOS App (.ipa)
@@ -48,11 +51,14 @@ jobs:
           name: SyposMobile-iOS-IPA
           path: ios/build/SyposMobile.ipa
 
-      - name: Upload OTA Installation Package
-        uses: actions/upload-artifact@v4
+      - name: Create Release and Upload IPA
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/heads/main') || startsWith(github.ref, 'refs/heads/master')
         with:
-          name: SyposMobile-OTA-Package
-          path: |
-            ios/build/SyposMobile.ipa
-            ios/ota/manifest.plist
-            ios/ota/index.html
+          tag_name: v2.2
+          name: SYPOS Mobile iOS v2.2
+          draft: false
+          prerelease: false
+          files: ios/build/SyposMobile.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
