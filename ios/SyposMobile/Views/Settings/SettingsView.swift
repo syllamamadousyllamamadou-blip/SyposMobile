@@ -1,13 +1,29 @@
 import SwiftUI
 
+public enum ActiveSettingsSheet: Identifiable {
+    case addPromo
+    case resetPin
+
+    public var id: String {
+        switch self {
+        case .addPromo: return "addPromo"
+        case .resetPin: return "resetPin"
+        }
+    }
+}
+
 public struct SettingsView: View {
     @ObservedObject var dataStore: DataStore
     @ObservedObject private var printerManager = BluetoothPrinterManager.shared
 
-    @State private var showAddPromoSheet = false
+    @State private var activeSheet: ActiveSettingsSheet? = nil
     @State private var newPromoCode = ""
     @State private var newPromoDiscount = "10"
     @State private var newPromoMaxUsage = "50"
+
+    @State private var testPrintMessage: String? = nil
+    @State private var isTestingPrinter = false
+    @State private var showResetConfirmation = false
 
     public var body: some View {
         NavigationView {
@@ -48,15 +64,90 @@ public struct SettingsView: View {
                     }
                 }
 
-                // Section 4: Promo Codes
+                // Section 4: Thermal Bluetooth Printer
+                Section(header: HStack {
+                    Text("Imprimante Thermique Bluetooth")
+                    Spacer()
+                    Button(printerManager.isScanning ? "Scan en cours..." : "Rechercher") {
+                        printerManager.startScanning()
+                    }
+                    .font(.caption)
+                    .disabled(printerManager.isScanning)
+                }) {
+                    Toggle("Impression automatique des tickets", isOn: $dataStore.settings.autoPrintReceipt)
+
+                    if printerManager.discoveredPrinters.isEmpty {
+                        Text(printerManager.isScanning ? "Recherche d'imprimantes Bluetooth à proximité..." : "Aucune imprimante détectée. Cliquez sur 'Rechercher'.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(printerManager.discoveredPrinters) { device in
+                            let isConnected = printerManager.connectedPrinter?.identifier == device.peripheral.identifier && printerManager.isConnected
+                            HStack {
+                                Image(systemName: "printer.fill")
+                                    .foregroundColor(isConnected ? .green : .secondary)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(device.name)
+                                        .font(.subheadline)
+                                        .bold()
+                                    if isConnected {
+                                        Text("Connectée & Mémorisée par défaut")
+                                            .font(.caption2)
+                                            .foregroundColor(.green)
+                                    }
+                                }
+
+                                Spacer()
+
+                                if isConnected {
+                                    Button(action: {
+                                        printerManager.disconnect()
+                                        dataStore.settings.bluetoothPrinterUUID = nil
+                                        dataStore.settings.bluetoothPrinterName = nil
+                                    }) {
+                                        Text("Déconnecter")
+                                            .font(.caption)
+                                            .foregroundColor(.red)
+                                    }
+                                    .buttonStyle(.bordered)
+                                } else {
+                                    Button("Connecter") {
+                                        printerManager.connect(to: device)
+                                        dataStore.settings.bluetoothPrinterUUID = device.peripheral.identifier.uuidString
+                                        dataStore.settings.bluetoothPrinterName = device.name
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                }
+                            }
+                        }
+                    }
+
+                    if let msg = testPrintMessage {
+                        Text(msg)
+                            .font(.caption)
+                            .bold()
+                            .foregroundColor(.blue)
+                    }
+
+                    Button(action: testPrinter) {
+                        HStack {
+                            Image(systemName: "checkmark.seal.fill")
+                            Text(isTestingPrinter ? "Envoi du test..." : "Tester l'impression (Ticket Test)")
+                        }
+                    }
+                    .disabled(isTestingPrinter)
+                }
+
+                // Section 5: Promo Codes
                 Section(header: HStack {
                     Text("Codes Promo")
                     Spacer()
-                    Button("Ajouter") { showAddPromoSheet = true }
+                    Button("Ajouter") { activeSheet = .addPromo }
                         .font(.caption)
                 }) {
                     if dataStore.promoCodes.isEmpty {
-                        Text("Aucun code promo créé.")
+                        Text("Aucun code promo actif.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     } else {
@@ -87,7 +178,7 @@ public struct SettingsView: View {
                     }
                 }
 
-                // Section 5: VAT
+                // Section 6: VAT
                 Section(header: Text("Taxe sur la Valeur Ajoutée (TVA)")) {
                     Toggle("Activer la TVA", isOn: $dataStore.settings.taxEnabled)
                     if dataStore.settings.taxEnabled {
@@ -100,41 +191,6 @@ public struct SettingsView: View {
                             ))
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
-                        }
-                    }
-                }
-
-                // Section 6: Thermal Bluetooth Printer
-                Section(header: HStack {
-                    Text("Imprimante Ticket BLE")
-                    Spacer()
-                    Button("Rechercher") { printerManager.startScanning() }
-                        .font(.caption)
-                }) {
-                    Toggle("Impression automatique", isOn: $dataStore.settings.autoPrintReceipt)
-
-                    if printerManager.discoveredPrinters.isEmpty {
-                        Text("Recherche d'imprimantes Bluetooth...")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    } else {
-                        ForEach(printerManager.discoveredPrinters) { device in
-                            HStack {
-                                Image(systemName: "printer.fill")
-                                Text(device.name)
-                                    .font(.subheadline)
-                                Spacer()
-                                if printerManager.connectedPrinter?.identifier == device.peripheral.identifier && printerManager.isConnected {
-                                    Text("Connecté")
-                                        .font(.caption)
-                                        .foregroundColor(.green)
-                                } else {
-                                    Button("Connecter") {
-                                        printerManager.connect(to: device)
-                                    }
-                                    .buttonStyle(.bordered)
-                                }
-                            }
                         }
                     }
                 }
@@ -159,33 +215,96 @@ public struct SettingsView: View {
                         }
                     }
                 }
+
+                // Section 8: Database Maintenance
+                Section(header: Text("Maintenance de la Caisse")) {
+                    Button(action: {
+                        dataStore.loadDemoData()
+                    }) {
+                        HStack {
+                            Image(systemName: "tray.and.arrow.down.fill")
+                            Text("Charger Données de Démonstration (Test)")
+                        }
+                    }
+
+                    Button(action: {
+                        if dataStore.settings.pinLockEnabled {
+                            activeSheet = .resetPin
+                        } else {
+                            showResetConfirmation = true
+                        }
+                    }) {
+                        HStack {
+                            Image(systemName: "trash.fill")
+                            Text("Purger & Réinitialiser Toute la Caisse")
+                        }
+                        .foregroundColor(.red)
+                    }
+                }
             }
             .navigationTitle("Paramètres")
-            .sheet(isPresented: $showAddPromoSheet) {
-                NavigationView {
-                    Form {
-                        TextField("Code (ex: SOLDES20)", text: $newPromoCode)
-                            .autocapitalization(.allCharacters)
-                        TextField("Réduction (%)", text: $newPromoDiscount)
-                            .keyboardType(.numberPad)
-                        TextField("Nombre d'utilisations max", text: $newPromoMaxUsage)
-                            .keyboardType(.numberPad)
+            .confirmationDialog("Réinitialiser toute la caisse ?", isPresented: $showResetConfirmation, titleVisibility: .visible) {
+                Button("Tout effacer définitivement", role: .destructive) {
+                    dataStore.resetAllData()
+                }
+                Button("Annuler", role: .cancel) {}
+            } message: {
+                Text("Cette action supprimera tous les produits, tickets et dépenses.")
+            }
+            .sheet(item: $activeSheet) { sheetType in
+                switch sheetType {
+                case .addPromo:
+                    NavigationView {
+                        Form {
+                            TextField("Code (ex: SOLDES20)", text: $newPromoCode)
+                                .autocapitalization(.allCharacters)
+                            TextField("Réduction (%)", text: $newPromoDiscount)
+                                .keyboardType(.numberPad)
+                            TextField("Nombre d'utilisations max", text: $newPromoMaxUsage)
+                                .keyboardType(.numberPad)
+                        }
+                        .navigationTitle("Nouveau Code Promo")
+                        .navigationBarItems(
+                            leading: Button("Annuler") { activeSheet = nil },
+                            trailing: Button("Créer") {
+                                if !newPromoCode.isEmpty {
+                                    let disc = Double(newPromoDiscount) ?? 10.0
+                                    let maxU = Int(newPromoMaxUsage) ?? 50
+                                    let promo = PromoCode(code: newPromoCode, discountPercent: disc, maxUsage: maxU)
+                                    dataStore.addPromoCode(promo)
+                                    newPromoCode = ""
+                                    activeSheet = nil
+                                }
+                            }.disabled(newPromoCode.isEmpty)
+                        )
                     }
-                    .navigationTitle("Nouveau Code Promo")
-                    .navigationBarItems(
-                        leading: Button("Annuler") { showAddPromoSheet = false },
-                        trailing: Button("Créer") {
-                            if !newPromoCode.isEmpty {
-                                let disc = Double(newPromoDiscount) ?? 10.0
-                                let maxU = Int(newPromoMaxUsage) ?? 50
-                                let promo = PromoCode(code: newPromoCode, discountPercent: disc, maxUsage: maxU)
-                                dataStore.addPromoCode(promo)
-                                newPromoCode = ""
-                                showAddPromoSheet = false
+
+                case .resetPin:
+                    PinAuthSheetView(
+                        title: "Autorisation Admin pour Réinitialiser la Caisse",
+                        correctPin: dataStore.settings.adminPin,
+                        onSuccess: {
+                            activeSheet = nil
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                dataStore.resetAllData()
                             }
-                        }.disabled(newPromoCode.isEmpty)
+                        }
                     )
                 }
+            }
+        }
+    }
+
+    private func testPrinter() {
+        isTestingPrinter = true
+        testPrintMessage = "Envoi du ticket de test..."
+        printerManager.testPrinter(settings: dataStore.settings) { result in
+            isTestingPrinter = false
+            switch result {
+            case .success:
+                testPrintMessage = "✅ Test d'impression réussi !"
+            case .failure(let err):
+                testPrintMessage = "❌ Erreur: \(err.localizedDescription)"
             }
         }
     }

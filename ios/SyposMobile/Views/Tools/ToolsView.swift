@@ -51,6 +51,8 @@ struct BarcodeLabelTab: View {
     @State private var printPrice = true
     @State private var printBarcodeRaster = true
     @State private var printSerialNumber = true
+    @State private var printStatusMessage: String? = nil
+    @State private var isPrinting = false
 
     var body: some View {
         ScrollView {
@@ -81,8 +83,8 @@ struct BarcodeLabelTab: View {
 
                 // Configuration Form
                 VStack(spacing: 12) {
-                    Picker("Produit du catalogue", selection: $selectedProduct) {
-                        Text("Saisie manuelle ou choisir...").tag(nil as Product?)
+                    Picker("Sélectionner un produit", selection: $selectedProduct) {
+                        Text("Saisie libre ou catalogue...").tag(nil as Product?)
                         ForEach(dataStore.products) { prod in
                             Text("\(prod.name) (\(Int(prod.salePrice)) CFA)").tag(prod as Product?)
                         }
@@ -100,7 +102,7 @@ struct BarcodeLabelTab: View {
                         .textFieldStyle(RoundedBorderTextFieldStyle())
 
                     HStack(spacing: 10) {
-                        TextField("Prix Vente (CFA)", text: $customPrice)
+                        TextField("Prix (CFA)", text: $customPrice)
                             .keyboardType(.numberPad)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
 
@@ -108,75 +110,40 @@ struct BarcodeLabelTab: View {
                             .textFieldStyle(RoundedBorderTextFieldStyle())
                     }
 
-                    TextField("N° Série / Réf Texte à imprimer", text: $customSerial)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-
-                    Divider()
-
-                    // Toggle individual switches
-                    Toggle("En-tête Nom Boutique", isOn: $printShopHeader)
-                    Toggle("Nom de l'article", isOn: $printProductName)
-                    Toggle("Prix de Vente", isOn: $printPrice)
-                    Toggle("Code-barres Scannable (Bitmap)", isOn: $printBarcodeRaster)
-                    Toggle("Numéro de Série / Référence", isOn: $printSerialNumber)
+                    if printSerialNumber {
+                        TextField("Numéro de série / Réf unique", text: $customSerial)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                    }
                 }
                 .padding()
                 .background(Color(.systemBackground))
                 .cornerRadius(14)
                 .padding(.horizontal, 16)
 
-                // Preview Box
-                VStack(spacing: 6) {
-                    Text("Aperçu de l'Étiquette Thermique")
-                        .font(.caption)
-                        .bold()
-                        .foregroundColor(.blue)
-
-                    Divider()
-
-                    if printShopHeader && !dataStore.settings.shopName.isEmpty {
-                        Text(dataStore.settings.shopName.uppercased())
-                            .font(.caption2)
-                            .bold()
-                    }
-
-                    if printProductName && !customName.isEmpty {
-                        Text(customName)
-                            .font(.headline)
-                            .bold()
-                    }
-
-                    if printPrice, let price = Double(customPrice), price > 0 {
-                        Text("\(Int(price)) CFA")
-                            .font(.title2)
-                            .bold()
-                            .foregroundColor(.blue)
-                    }
-
-                    if printBarcodeRaster && !customBarcode.isEmpty {
-                        Text("||||||||||||||||||||||||||||||||||")
-                            .font(.headline)
-                            .tracking(2)
-                    }
-
-                    let serial = customSerial.isEmpty ? customBarcode : customSerial
-                    if printSerialNumber && !serial.isEmpty {
-                        Text("* \(serial) *")
-                            .font(.caption)
-                            .bold()
-                    }
+                // Switches
+                VStack(spacing: 8) {
+                    Toggle("En-tête Boutique", isOn: $printShopHeader)
+                    Toggle("Nom du Produit", isOn: $printProductName)
+                    Toggle("Prix de Vente", isOn: $printPrice)
+                    Toggle("Code-barres Graphique", isOn: $printBarcodeRaster)
+                    Toggle("Texte N° de Série", isOn: $printSerialNumber)
                 }
                 .padding()
-                .frame(maxWidth: .infinity)
-                .background(Color(.systemGray6))
+                .background(Color(.systemBackground))
                 .cornerRadius(14)
                 .padding(.horizontal, 16)
 
-                // Print Button
+                if let msg = printStatusMessage {
+                    Text(msg)
+                        .font(.caption)
+                        .bold()
+                        .foregroundColor(.blue)
+                }
+
                 Button(action: printLabel) {
                     HStack {
                         Image(systemName: "printer.fill")
-                        Text("Imprimer l'Étiquette")
+                        Text(isPrinting ? "Impression..." : "Imprimer l'Étiquette")
                             .bold()
                     }
                     .frame(maxWidth: .infinity)
@@ -186,6 +153,7 @@ struct BarcodeLabelTab: View {
                     .cornerRadius(12)
                     .padding(.horizontal, 16)
                 }
+                .disabled(isPrinting || (customName.isEmpty && customBarcode.isEmpty))
             }
             .padding(.vertical, 10)
         }
@@ -222,6 +190,8 @@ struct BarcodeLabelTab: View {
     }
 
     private func printLabel() {
+        isPrinting = true
+        printStatusMessage = "Envoi à l'imprimante..."
         let price = Double(customPrice) ?? 0.0
         let options = LabelPrintOptions(
             printShopHeader: printShopHeader,
@@ -238,12 +208,21 @@ struct BarcodeLabelTab: View {
             barcode: customBarcode.isEmpty ? nil : customBarcode,
             settings: dataStore.settings,
             options: options
-        ) { _ in }
+        ) { result in
+            isPrinting = false
+            switch result {
+            case .success:
+                printStatusMessage = "✅ Étiquette imprimée avec succès !"
+            case .failure(let err):
+                printStatusMessage = "❌ Erreur: \(err.localizedDescription)"
+            }
+        }
     }
 }
 
 struct ProductPromoSheetTab: View {
     @ObservedObject var dataStore: DataStore
+
     @State private var title: String = ""
     @State private var normalPrice: String = ""
     @State private var promoPrice: String = ""
@@ -287,6 +266,7 @@ struct ProductPromoSheetTab: View {
                     .cornerRadius(12)
                     .padding(.horizontal, 16)
                 }
+                .disabled(title.isEmpty)
             }
             .padding(.vertical, 10)
         }
@@ -327,6 +307,9 @@ struct DeliveryNoteTab: View {
     @State private var items = ""
     @State private var amount = ""
     @State private var deliveryFee = "1000"
+    @State private var note = ""
+    @State private var printStatusMessage: String? = nil
+    @State private var isPrinting = false
 
     var body: some View {
         ScrollView {
@@ -350,18 +333,26 @@ struct DeliveryNoteTab: View {
                             .keyboardType(.numberPad)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
                     }
+
+                    TextField("Note supplémentaire (optionnel)", text: $note)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
                 }
                 .padding()
                 .background(Color(.systemBackground))
                 .cornerRadius(14)
                 .padding(.horizontal, 16)
 
-                Button(action: {
-                    // Trigger Delivery note thermal print
-                }) {
+                if let msg = printStatusMessage {
+                    Text(msg)
+                        .font(.caption)
+                        .bold()
+                        .foregroundColor(.blue)
+                }
+
+                Button(action: printDeliveryNote) {
                     HStack {
                         Image(systemName: "shippingbox.fill")
-                        Text("Imprimer Bordereau de Livraison")
+                        Text(isPrinting ? "Impression..." : "Imprimer Bordereau de Livraison")
                             .bold()
                     }
                     .frame(maxWidth: .infinity)
@@ -371,8 +362,36 @@ struct DeliveryNoteTab: View {
                     .cornerRadius(12)
                     .padding(.horizontal, 16)
                 }
+                .disabled(isPrinting || recipientName.isEmpty || address.isEmpty)
             }
             .padding(.vertical, 10)
+        }
+    }
+
+    private func printDeliveryNote() {
+        isPrinting = true
+        printStatusMessage = "Envoi à l'imprimante..."
+        let amt = Double(amount) ?? 0.0
+        let fee = Double(deliveryFee) ?? 0.0
+
+        let deliveryData = DeliveryNoteData(
+            recipientName: recipientName,
+            recipientPhone: recipientPhone,
+            deliveryAddress: address,
+            itemsSummary: items,
+            amountToCollect: amt,
+            deliveryFee: fee,
+            note: note.isEmpty ? nil : note
+        )
+
+        BluetoothPrinterManager.shared.printDeliveryNote(data: deliveryData, settings: dataStore.settings) { result in
+            isPrinting = false
+            switch result {
+            case .success:
+                printStatusMessage = "✅ Bordereau de livraison imprimé !"
+            case .failure(let err):
+                printStatusMessage = "❌ Erreur: \(err.localizedDescription)"
+            }
         }
     }
 }

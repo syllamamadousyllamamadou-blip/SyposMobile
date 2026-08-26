@@ -1,12 +1,26 @@
 import SwiftUI
 
+public enum ActiveHistorySheet: Identifiable {
+    case customDate
+    case ticketDetails(Ticket)
+    case cancelPin(Ticket)
+
+    public var id: String {
+        switch self {
+        case .customDate: return "customDate"
+        case .ticketDetails(let t): return "details_\(t.id)"
+        case .cancelPin(let t): return "cancelPin_\(t.id)"
+        }
+    }
+}
+
 public struct HistoryView: View {
     @ObservedObject var dataStore: DataStore
     @StateObject private var viewModel = HistoryViewModel()
 
-    @State private var showCustomDateSheet = false
-    @State private var ticketToCancelWithPin: Ticket? = nil
-    @State private var selectedTicketForDetails: Ticket? = nil
+    @State private var activeSheet: ActiveHistorySheet? = nil
+    @State private var ticketToCancelDirectly: Ticket? = nil
+    @State private var showCancelConfirmation = false
 
     public var body: some View {
         NavigationView {
@@ -18,7 +32,7 @@ public struct HistoryView: View {
                             Button(action: {
                                 viewModel.selectedFilter = filter
                                 if filter == .custom {
-                                    showCustomDateSheet = true
+                                    activeSheet = .customDate
                                 }
                             }) {
                                 Text(filter.rawValue)
@@ -76,98 +90,131 @@ public struct HistoryView: View {
                 .padding(.vertical, 8)
 
                 // List of Tickets
-                List {
-                    ForEach(filtered) { ticket in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text(ticket.ticketNumber)
-                                        .font(.headline)
+                if filtered.isEmpty {
+                    VStack(spacing: 12) {
+                        Spacer()
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .font(.system(size: 48))
+                            .foregroundColor(.secondary)
+                        Text("Aucune vente trouvée pour cette période")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                } else {
+                    List {
+                        ForEach(filtered) { ticket in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(ticket.ticketNumber)
+                                            .font(.headline)
 
-                                    Text(ticket.status.displayName)
-                                        .font(.caption2)
-                                        .bold()
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(statusColor(ticket.status).opacity(0.15))
-                                        .foregroundColor(statusColor(ticket.status))
-                                        .cornerRadius(6)
-                                }
+                                        Text(ticket.status.displayName)
+                                            .font(.caption2)
+                                            .bold()
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(statusColor(ticket.status).opacity(0.15))
+                                            .foregroundColor(statusColor(ticket.status))
+                                            .cornerRadius(6)
+                                    }
 
-                                HStack(spacing: 6) {
-                                    let formatter = DateFormatter()
-                                    let _ = formatter.dateFormat = "dd/MM/yyyy HH:mm"
-                                    Text(formatter.string(from: ticket.date))
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-
-                                    if let method = ticket.paymentMethod {
-                                        Text("• \(method.displayName)")
+                                    HStack(spacing: 6) {
+                                        let formatter = DateFormatter()
+                                        formatter.dateFormat = "dd/MM/yyyy HH:mm"
+                                        Text(formatter.string(from: ticket.date))
                                             .font(.caption)
                                             .foregroundColor(.secondary)
+
+                                        if let method = ticket.paymentMethod {
+                                            Text("• \(method.displayName)")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
                                     }
                                 }
+
+                                Spacer()
+
+                                VStack(alignment: .trailing, spacing: 4) {
+                                    Text("\(Int(ticket.totalAmount)) CFA")
+                                        .font(.headline)
+                                        .bold()
+
+                                    Text("\(ticket.items.count) article(s)")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
                             }
-
-                            Spacer()
-
-                            VStack(alignment: .trailing, spacing: 4) {
-                                Text("\(Int(ticket.totalAmount)) CFA")
-                                    .font(.headline)
-                                    .bold()
-
-                                Text("\(ticket.items.count) article(s)")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                activeSheet = .ticketDetails(ticket)
                             }
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            selectedTicketForDetails = ticket
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            if ticket.status != .cancelled {
-                                Button(role: .destructive) {
-                                    if dataStore.settings.pinLockEnabled {
-                                        ticketToCancelWithPin = ticket
-                                    } else {
-                                        dataStore.cancelTicket(ticketId: ticket.id)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if ticket.status != .cancelled {
+                                    Button(role: .destructive) {
+                                        if dataStore.settings.pinLockEnabled {
+                                            activeSheet = .cancelPin(ticket)
+                                        } else {
+                                            ticketToCancelDirectly = ticket
+                                            showCancelConfirmation = true
+                                        }
+                                    } label: {
+                                        Label("Annuler", systemImage: "xmark.circle")
                                     }
+                                }
+
+                                Button {
+                                    BluetoothPrinterManager.shared.printTicket(ticket: ticket, customerName: nil, settings: dataStore.settings) { _ in }
                                 } label: {
-                                    Label("Annuler", systemImage: "xmark.circle")
+                                    Label("Imprimer", systemImage: "printer")
                                 }
+                                .tint(.blue)
                             }
-
-                            Button {
-                                BluetoothPrinterManager.shared.printTicket(ticket: ticket, customerName: nil, settings: dataStore.settings) { _ in }
-                            } label: {
-                                Label("Imprimer", systemImage: "printer")
-                            }
-                            .tint(.blue)
                         }
                     }
+                    .listStyle(PlainListStyle())
                 }
-                .listStyle(PlainListStyle())
             }
             .navigationTitle("Historique des Ventes")
             .searchable(text: $viewModel.searchQuery, prompt: "Rechercher par N° de ticket...")
-            .sheet(isPresented: $showCustomDateSheet) {
-                CustomDateRangeSheetView(
-                    startDate: $viewModel.customStartDate,
-                    endDate: $viewModel.customEndDate
-                )
-            }
-            .sheet(item: $selectedTicketForDetails) { ticket in
-                ReceiptSheetView(ticket: ticket, dataStore: dataStore)
-            }
-            .sheet(item: $ticketToCancelWithPin) { ticket in
-                PinAuthSheetView(
-                    title: "Autorisation Admin pour Annuler la Vente",
-                    correctPin: dataStore.settings.adminPin,
-                    onSuccess: {
-                        dataStore.cancelTicket(ticketId: ticket.id)
+            .confirmationDialog("Annuler ce ticket ?", isPresented: $showCancelConfirmation, titleVisibility: .visible) {
+                Button("Confirmer l'annulation (Restocker)", role: .destructive) {
+                    if let t = ticketToCancelDirectly {
+                        dataStore.cancelTicket(ticketId: t.id)
+                        ticketToCancelDirectly = nil
                     }
-                )
+                }
+                Button("Ne rien faire", role: .cancel) {
+                    ticketToCancelDirectly = nil
+                }
+            } message: {
+                Text("L'annulation remettra automatiquement les articles du ticket en stock.")
+            }
+            .sheet(item: $activeSheet) { sheetType in
+                switch sheetType {
+                case .customDate:
+                    CustomDateRangeSheetView(
+                        startDate: $viewModel.customStartDate,
+                        endDate: $viewModel.customEndDate
+                    )
+
+                case .ticketDetails(let ticket):
+                    ReceiptSheetView(ticket: ticket, dataStore: dataStore)
+
+                case .cancelPin(let ticket):
+                    PinAuthSheetView(
+                        title: "Autorisation Admin pour Annuler la Vente",
+                        correctPin: dataStore.settings.adminPin,
+                        onSuccess: {
+                            activeSheet = nil
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                dataStore.cancelTicket(ticketId: ticket.id)
+                            }
+                        }
+                    )
+                }
             }
         }
     }

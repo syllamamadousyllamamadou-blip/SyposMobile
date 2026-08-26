@@ -30,12 +30,12 @@ public class DataStore: ObservableObject {
     }
 
     public func loadAll() {
-        products = load([Product].self, from: "products") ?? defaultProducts()
+        products = load([Product].self, from: "products") ?? []
         categories = load([ProductCategory].self, from: "categories") ?? defaultCategories()
         tickets = load([Ticket].self, from: "tickets") ?? []
-        customers = load([Customer].self, from: "customers") ?? defaultCustomers()
+        customers = load([Customer].self, from: "customers") ?? []
         expenses = load([Expense].self, from: "expenses") ?? []
-        promoCodes = load([PromoCode].self, from: "promocodes") ?? defaultPromoCodes()
+        promoCodes = load([PromoCode].self, from: "promocodes") ?? []
         settings = load(ShopSettings.self, from: "settings") ?? ShopSettings()
     }
 
@@ -81,7 +81,27 @@ public class DataStore: ObservableObject {
         }
     }
 
-    // MARK: - Business Logic Operations
+    // MARK: - Category Operations
+
+    public func addOrUpdateCategory(_ category: ProductCategory) {
+        if let index = categories.firstIndex(where: { $0.id == category.id }) {
+            categories[index] = category
+        } else {
+            categories.append(category)
+        }
+    }
+
+    public func deleteCategory(_ category: ProductCategory) {
+        categories.removeAll { $0.id == category.id }
+        // Clear category reference on associated products
+        for i in 0..<products.count {
+            if products[i].categoryId == category.id {
+                products[i].categoryId = nil
+            }
+        }
+    }
+
+    // MARK: - Product Operations
 
     public func addOrUpdateProduct(_ product: Product) {
         if let index = products.firstIndex(where: { $0.id == product.id }) {
@@ -100,6 +120,8 @@ public class DataStore: ObservableObject {
             products[index].stockQuantity = max(0, products[index].stockQuantity + delta)
         }
     }
+
+    // MARK: - Sales & Tickets Operations
 
     public func recordSale(ticket: Ticket) {
         tickets.insert(ticket, at: 0)
@@ -151,6 +173,12 @@ public class DataStore: ObservableObject {
         tickets.removeAll { $0.id == ticketId }
     }
 
+    public var heldTickets: [Ticket] {
+        tickets.filter { $0.status == .onHold }
+    }
+
+    // MARK: - Expenses Operations
+
     public func addExpense(amount: Double, description: String, category: String? = nil) {
         let expense = Expense(amount: amount, description: description, category: category)
         expenses.insert(expense, at: 0)
@@ -159,6 +187,8 @@ public class DataStore: ObservableObject {
     public func deleteExpense(_ expense: Expense) {
         expenses.removeAll { $0.id == expense.id }
     }
+
+    // MARK: - Customer Operations
 
     public func addOrUpdateCustomer(_ customer: Customer) {
         if let index = customers.firstIndex(where: { $0.id == customer.id }) {
@@ -177,6 +207,8 @@ public class DataStore: ObservableObject {
             customers[index].totalDebt = max(0, customers[index].totalDebt - amount)
         }
     }
+
+    // MARK: - Promo Codes
 
     public func addPromoCode(_ promo: PromoCode) {
         promoCodes.append(promo)
@@ -201,37 +233,45 @@ public class DataStore: ObservableObject {
         }
     }
 
+    // MARK: - Reset and Demo Data
+
+    public func resetAllData() {
+        products = []
+        categories = defaultCategories()
+        tickets = []
+        customers = []
+        expenses = []
+        promoCodes = []
+        saveAll()
+    }
+
+    public func loadDemoData() {
+        categories = defaultCategories()
+        products = [
+            Product(name: "Riz Parfumé 5kg", salePrice: 4500, costPrice: 3800, stockQuantity: 25, alertStock: 5, barcode: "618110012345", categoryId: categories.first?.id),
+            Product(name: "Huile de Palme 1L", salePrice: 1200, costPrice: 950, stockQuantity: 40, alertStock: 8, barcode: "618110067890", categoryId: categories.first?.id),
+            Product(name: "Coca Cola 33cl", salePrice: 400, costPrice: 280, stockQuantity: 48, alertStock: 12, barcode: "5449000000996", categoryId: categories.count > 1 ? categories[1].id : nil),
+            Product(name: "Savon de Marseille", salePrice: 500, costPrice: 350, stockQuantity: 60, alertStock: 10, barcode: "618110099999", categoryId: categories.count > 2 ? categories[2].id : nil)
+        ]
+        customers = [
+            Customer(name: "M. Kouamé", phone: "0708091011", address: "Cocody", totalDebt: 0),
+            Customer(name: "Mme Touré", phone: "0506070809", address: "Yopougon", totalDebt: 3500)
+        ]
+        promoCodes = [
+            PromoCode(code: "SOLDES10", discountPercent: 10, maxUsage: 100, currentUsage: 0, isActive: true),
+            PromoCode(code: "PROMO20", discountPercent: 20, maxUsage: 50, currentUsage: 0, isActive: true)
+        ]
+        saveAll()
+    }
+
     // MARK: - Initial Seed Data
 
-    private func defaultCategories() -> [ProductCategory] {
+    public func defaultCategories() -> [ProductCategory] {
         [
             ProductCategory(name: "Alimentation", colorHex: "#10B981"),
             ProductCategory(name: "Boissons", colorHex: "#3B82F6"),
             ProductCategory(name: "Hygiène", colorHex: "#EC4899"),
             ProductCategory(name: "Divers", colorHex: "#8B5CF6")
-        ]
-    }
-
-    private func defaultProducts() -> [Product] {
-        [
-            Product(name: "Riz Parfumé 5kg", salePrice: 4500, costPrice: 3800, stockQuantity: 25, alertStock: 5, barcode: "618110012345"),
-            Product(name: "Huile de Palme 1L", salePrice: 1200, costPrice: 950, stockQuantity: 40, alertStock: 8, barcode: "618110067890"),
-            Product(name: "Savon de Marseille", salePrice: 500, costPrice: 350, stockQuantity: 60, alertStock: 10, barcode: "618110099999"),
-            Product(name: "Coca Cola 33cl", salePrice: 400, costPrice: 280, stockQuantity: 48, alertStock: 12, barcode: "5449000000996")
-        ]
-    }
-
-    private func defaultCustomers() -> [Customer] {
-        [
-            Customer(name: "M. Kouamé", phone: "0708091011", address: "Cocody", totalDebt: 0),
-            Customer(name: "Mme Touré", phone: "0506070809", address: "Yopougon", totalDebt: 3500)
-        ]
-    }
-
-    private func defaultPromoCodes() -> [PromoCode] {
-        [
-            PromoCode(code: "SOLDES10", discountPercent: 10, maxUsage: 100, currentUsage: 2, isActive: true),
-            PromoCode(code: "PROMO20", discountPercent: 20, maxUsage: 50, currentUsage: 0, isActive: true)
         ]
     }
 }

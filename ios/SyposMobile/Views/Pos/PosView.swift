@@ -1,17 +1,36 @@
 import SwiftUI
 
+public enum ActivePosSheet: Identifiable {
+    case cart
+    case payment
+    case receipt(Ticket)
+    case scanner
+    case holdNote
+    case heldCartsList
+    case editCartItem(CartItem)
+    case clearCartPin
+    case removeItemPin(String)
+
+    public var id: String {
+        switch self {
+        case .cart: return "cart"
+        case .payment: return "payment"
+        case .receipt(let t): return "receipt_\(t.id)"
+        case .scanner: return "scanner"
+        case .holdNote: return "holdNote"
+        case .heldCartsList: return "heldCartsList"
+        case .editCartItem(let item): return "edit_\(item.id)_\(item.unitPrice)"
+        case .clearCartPin: return "clearCartPin"
+        case .removeItemPin(let id): return "remove_\(id)"
+        }
+    }
+}
+
 public struct PosView: View {
     @ObservedObject var dataStore: DataStore
     @StateObject private var viewModel = PosViewModel()
 
-    @State private var showCartSheet = false
-    @State private var showPaymentSheet = false
-    @State private var showScannerSheet = false
-    @State private var showHoldNoteDialog = false
-    @State private var showClearCartPinDialog = false
-    @State private var itemToRemoveWithPin: String? = nil
-    @State private var lastProcessedTicket: Ticket? = nil
-    @State private var showReceiptSheet = false
+    @State private var activeSheet: ActivePosSheet? = nil
 
     public var body: some View {
         NavigationView {
@@ -45,15 +64,35 @@ public struct PosView: View {
                     return matchesCategory && matchesSearch
                 }
 
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        ForEach(filteredProducts) { product in
-                            ProductGridCard(product: product) {
-                                viewModel.addToCart(product: product)
+                if filteredProducts.isEmpty {
+                    VStack(spacing: 12) {
+                        Spacer()
+                        Image(systemName: "cube.box")
+                            .font(.system(size: 48))
+                            .foregroundColor(.secondary)
+                        Text(dataStore.products.isEmpty ? "Aucun produit dans le catalogue" : "Aucun résultat trouvé")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                        if dataStore.products.isEmpty {
+                            Text("Ajoutez des produits dans l'onglet Catalogue pour commencer à encaisser.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 32)
+                        }
+                        Spacer()
+                    }
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                            ForEach(filteredProducts) { product in
+                                ProductGridCard(product: product) {
+                                    viewModel.addToCart(product: product)
+                                }
                             }
                         }
+                        .padding(16)
                     }
-                    .padding(16)
                 }
 
                 // Bottom Cart Bar
@@ -74,7 +113,7 @@ public struct PosView: View {
 
                             Spacer()
 
-                            Button(action: { showCartSheet = true }) {
+                            Button(action: { activeSheet = .cart }) {
                                 HStack {
                                     Image(systemName: "cart.fill")
                                     Text("Voir Panier")
@@ -97,100 +136,130 @@ public struct PosView: View {
             .searchable(text: $viewModel.searchQuery, prompt: "Rechercher un produit...")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showScannerSheet = true }) {
-                        Image(systemName: "barcode.viewfinder")
-                            .font(.title3)
+                    HStack(spacing: 12) {
+                        // Held Carts Button with Badge
+                        let heldCount = dataStore.heldTickets.count
+                        Button(action: { activeSheet = .heldCartsList }) {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "pause.circle.fill")
+                                    .font(.title3)
+                                    .foregroundColor(heldCount > 0 ? .orange : .secondary)
+
+                                if heldCount > 0 {
+                                    Text("\(heldCount)")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .padding(4)
+                                        .background(Color.red)
+                                        .clipShape(Circle())
+                                        .offset(x: 8, y: -8)
+                                }
+                            }
+                        }
+
+                        Button(action: { activeSheet = .scanner }) {
+                            Image(systemName: "barcode.viewfinder")
+                                .font(.title3)
+                        }
                     }
                 }
             }
-            .sheet(isPresented: $showCartSheet) {
-                CartSheetView(
-                    viewModel: viewModel,
-                    dataStore: dataStore,
-                    onClearCartRequested: {
-                        if dataStore.settings.pinLockEnabled {
-                            showClearCartPinDialog = true
-                        } else {
-                            viewModel.clearCart()
-                            showCartSheet = false
+            .sheet(item: $activeSheet) { sheetType in
+                switch sheetType {
+                case .cart:
+                    CartSheetView(
+                        viewModel: viewModel,
+                        dataStore: dataStore,
+                        onClearCartRequested: {
+                            if dataStore.settings.pinLockEnabled {
+                                activeSheet = .clearCartPin
+                            } else {
+                                viewModel.clearCart()
+                                activeSheet = nil
+                            }
+                        },
+                        onRemoveItemRequested: { id in
+                            if dataStore.settings.pinLockEnabled {
+                                activeSheet = .removeItemPin(id)
+                            } else {
+                                viewModel.removeFromCart(productId: id)
+                            }
+                        },
+                        onHoldRequested: {
+                            activeSheet = .holdNote
+                        },
+                        onCheckoutRequested: {
+                            activeSheet = .payment
+                        },
+                        onEditItemRequested: { item in
+                            activeSheet = .editCartItem(item)
                         }
-                    },
-                    onRemoveItemRequested: { id in
-                        if dataStore.settings.pinLockEnabled {
-                            itemToRemoveWithPin = id
-                        } else {
-                            viewModel.removeFromCart(productId: id)
+                    )
+
+                case .payment:
+                    PaymentSheetView(
+                        totalAmount: viewModel.totalAmount,
+                        customerName: viewModel.selectedCustomer?.name,
+                        onConfirmPayment: { method, amt in
+                            let ticket = viewModel.processPayment(method: method, amountPaid: amt)
+                            activeSheet = .receipt(ticket)
                         }
-                    },
-                    onHoldRequested: {
-                        showCartSheet = false
-                        showHoldNoteDialog = true
-                    },
-                    onCheckoutRequested: {
-                        showCartSheet = false
-                        showPaymentSheet = true
-                    }
-                )
-            }
-            .sheet(isPresented: $showPaymentSheet) {
-                PaymentSheetView(
-                    totalAmount: viewModel.totalAmount,
-                    customerName: viewModel.selectedCustomer?.name,
-                    onConfirmPayment: { method, amt in
-                        let ticket = viewModel.processPayment(method: method, amountPaid: amt)
-                        lastProcessedTicket = ticket
-                        showPaymentSheet = false
-                        showReceiptSheet = true
-                    }
-                )
-            }
-            .sheet(isPresented: $showReceiptSheet) {
-                if let ticket = lastProcessedTicket {
+                    )
+
+                case .receipt(let ticket):
                     ReceiptSheetView(ticket: ticket, dataStore: dataStore)
-                }
-            }
-            .sheet(isPresented: $showScannerSheet) {
-                CameraBarcodeScannerView { scannedCode in
-                    if let found = dataStore.products.first(where: { $0.barcode == scannedCode }) {
-                        viewModel.addToCart(product: found)
-                    } else {
-                        viewModel.searchQuery = scannedCode
+
+                case .scanner:
+                    CameraBarcodeScannerView { scannedCode in
+                        if let found = dataStore.products.first(where: { $0.barcode == scannedCode }) {
+                            viewModel.addToCart(product: found)
+                        } else {
+                            viewModel.searchQuery = scannedCode
+                        }
                     }
-                }
-            }
-            .sheet(isPresented: $showHoldNoteDialog) {
-                HoldNoteDialogView { note in
-                    viewModel.holdCart(note: note)
-                }
-            }
-            .sheet(isPresented: $showClearCartPinDialog) {
-                PinAuthSheetView(
-                    title: "Autorisation Admin pour Vider le Panier",
-                    correctPin: dataStore.settings.adminPin,
-                    onSuccess: {
-                        viewModel.clearCart()
-                        showCartSheet = false
+
+                case .holdNote:
+                    HoldNoteDialogView { note in
+                        viewModel.holdCart(note: note)
+                        activeSheet = nil
                     }
-                )
-            }
-            .sheet(item: Binding(
-                get: { itemToRemoveWithPin.map { IdentifiableString(id: $0) } },
-                set: { itemToRemoveWithPin = $0?.id }
-            )) { wrapper in
-                PinAuthSheetView(
-                    title: "Autorisation Admin pour Supprimer un Article",
-                    correctPin: dataStore.settings.adminPin,
-                    onSuccess: {
-                        viewModel.removeFromCart(productId: wrapper.id)
+
+                case .heldCartsList:
+                    HeldCartsSheetView(dataStore: dataStore) { ticket in
+                        viewModel.resumeHeldCart(ticket: ticket)
+                        activeSheet = .cart
                     }
-                )
+
+                case .editCartItem(let item):
+                    EditCartItemSheetView(item: item) { customPrice, discount in
+                        viewModel.updateCartItemPrice(productId: item.product.id, customPrice: customPrice)
+                        viewModel.updateCartItemDiscount(productId: item.product.id, discountPercent: discount)
+                        activeSheet = .cart
+                    }
+
+                case .clearCartPin:
+                    PinAuthSheetView(
+                        title: "Autorisation Admin pour Vider le Panier",
+                        correctPin: dataStore.settings.adminPin,
+                        onSuccess: {
+                            viewModel.clearCart()
+                            activeSheet = nil
+                        }
+                    )
+
+                case .removeItemPin(let id):
+                    PinAuthSheetView(
+                        title: "Autorisation Admin pour Supprimer un Article",
+                        correctPin: dataStore.settings.adminPin,
+                        onSuccess: {
+                            viewModel.removeFromCart(productId: id)
+                            activeSheet = .cart
+                        }
+                    )
+                }
             }
         }
     }
-}
-
-public struct IdentifiableString: Identifiable {
-    public var id: String
 }
 
 struct CategoryChip: View {

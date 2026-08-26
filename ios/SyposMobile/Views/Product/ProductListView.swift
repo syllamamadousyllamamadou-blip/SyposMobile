@@ -1,14 +1,32 @@
 import SwiftUI
 
+public enum ActiveProductSheet: Identifiable {
+    case addProduct
+    case editProduct(Product)
+    case adjustStock(Product)
+    case categoryManager
+    case scanner
+    case deletePin(Product)
+
+    public var id: String {
+        switch self {
+        case .addProduct: return "addProduct"
+        case .editProduct(let p): return "edit_\(p.id)"
+        case .adjustStock(let p): return "adjust_\(p.id)"
+        case .categoryManager: return "categoryManager"
+        case .scanner: return "scanner"
+        case .deletePin(let p): return "deletePin_\(p.id)"
+        }
+    }
+}
+
 public struct ProductListView: View {
     @ObservedObject var dataStore: DataStore
     @StateObject private var viewModel = ProductViewModel()
 
-    @State private var showAddProductSheet = false
-    @State private var productToEdit: Product? = nil
-    @State private var productToAdjust: Product? = nil
-    @State private var productToDeleteWithPin: Product? = nil
-    @State private var showScannerSheet = false
+    @State private var activeSheet: ActiveProductSheet? = nil
+    @State private var productToDeleteDirectly: Product? = nil
+    @State private var showDeleteConfirmation = false
 
     public var body: some View {
         NavigationView {
@@ -17,7 +35,7 @@ public struct ProductListView: View {
                 let metrics = viewModel.stockMetrics(products: dataStore.products)
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("VALEUR STOCK (ACHAT)")
+                        Text("VALEUR ACHAT")
                             .font(.caption2)
                             .bold()
                             .foregroundColor(.secondary)
@@ -54,117 +72,303 @@ public struct ProductListView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
 
-                // List of Products
-                let filtered = viewModel.filteredProducts(products: dataStore.products)
-                List {
-                    ForEach(filtered) { product in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(product.name)
-                                    .font(.headline)
+                // Category Filter Chips
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        CategoryChip(
+                            title: "Tous (\(dataStore.products.count))",
+                            isSelected: viewModel.selectedCategoryId == nil,
+                            action: { viewModel.selectedCategoryId = nil }
+                        )
 
-                                HStack(spacing: 8) {
-                                    Text("\(Int(product.salePrice)) CFA")
-                                        .font(.subheadline)
-                                        .bold()
-                                        .foregroundColor(.blue)
-
-                                    if product.costPrice > 0 {
-                                        Text("Achat: \(Int(product.costPrice)) CFA")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-
-                                    if let code = product.barcode, !code.isEmpty {
-                                        Text("• \(code)")
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
-                            }
-
-                            Spacer()
-
-                            // Stock Indicator & Quick Adjust
-                            Button(action: { productToAdjust = product }) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "cube.box.fill")
-                                    Text("\(product.stockQuantity)")
-                                        .bold()
-                                }
-                                .font(.caption)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(product.stockQuantity <= product.alertStock ? Color.orange.opacity(0.15) : Color.green.opacity(0.15))
-                                .foregroundColor(product.stockQuantity <= product.alertStock ? .orange : .green)
-                                .cornerRadius(8)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            productToEdit = product
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                if dataStore.settings.pinLockEnabled {
-                                    productToDeleteWithPin = product
-                                } else {
-                                    dataStore.deleteProduct(product)
-                                }
-                            } label: {
-                                Label("Supprimer", systemImage: "trash")
-                            }
-
-                            Button {
-                                productToEdit = product
-                            } label: {
-                                Label("Modifier", systemImage: "pencil")
-                            }
-                            .tint(.blue)
+                        ForEach(dataStore.categories) { cat in
+                            let count = dataStore.products.filter { $0.categoryId == cat.id }.count
+                            CategoryChip(
+                                title: "\(cat.name) (\(count))",
+                                isSelected: viewModel.selectedCategoryId == cat.id,
+                                action: { viewModel.selectedCategoryId = cat.id }
+                            )
                         }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                 }
-                .listStyle(PlainListStyle())
+
+                // List of Products
+                let filtered = viewModel.filteredProducts(products: dataStore.products)
+                if filtered.isEmpty {
+                    VStack(spacing: 12) {
+                        Spacer()
+                        Image(systemName: "cart.badge.plus")
+                            .font(.system(size: 48))
+                            .foregroundColor(.secondary)
+                        Text(dataStore.products.isEmpty ? "Votre catalogue est vide" : "Aucun produit correspondant")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                        Button("Ajouter un premier produit") {
+                            activeSheet = .addProduct
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                        Spacer()
+                    }
+                } else {
+                    List {
+                        ForEach(filtered) { product in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(product.name)
+                                        .font(.headline)
+
+                                    HStack(spacing: 8) {
+                                        Text("\(Int(product.salePrice)) CFA")
+                                            .font(.subheadline)
+                                            .bold()
+                                            .foregroundColor(.blue)
+
+                                        if product.costPrice > 0 {
+                                            Text("Achat: \(Int(product.costPrice)) CFA")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+
+                                        if let code = product.barcode, !code.isEmpty {
+                                            Text("• \(code)")
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                }
+
+                                Spacer()
+
+                                // Stock Indicator & Quick Adjust Button
+                                Button(action: { activeSheet = .adjustStock(product) }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "cube.box.fill")
+                                        Text("\(product.stockQuantity)")
+                                            .bold()
+                                    }
+                                    .font(.caption)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(product.stockQuantity <= product.alertStock ? Color.orange.opacity(0.15) : Color.green.opacity(0.15))
+                                    .foregroundColor(product.stockQuantity <= product.alertStock ? .orange : .green)
+                                    .cornerRadius(8)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                activeSheet = .editProduct(product)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    if dataStore.settings.pinLockEnabled {
+                                        activeSheet = .deletePin(product)
+                                    } else {
+                                        productToDeleteDirectly = product
+                                        showDeleteConfirmation = true
+                                    }
+                                } label: {
+                                    Label("Supprimer", systemImage: "trash")
+                                }
+
+                                Button {
+                                    activeSheet = .editProduct(product)
+                                } label: {
+                                    Label("Modifier", systemImage: "pencil")
+                                }
+                                .tint(.blue)
+                            }
+                        }
+                    }
+                    .listStyle(PlainListStyle())
+                }
             }
             .navigationTitle("Catalogue & Stock")
             .searchable(text: $viewModel.searchQuery, prompt: "Rechercher par nom ou code-barres...")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack {
-                        Button(action: { showScannerSheet = true }) {
+                    HStack(spacing: 12) {
+                        // Export CSV
+                        Button(action: {
+                            if let url = PdfExportManager.exportProductsCsv(products: dataStore.products, categories: dataStore.categories) {
+                                PdfExportManager.shareFile(url: url)
+                            }
+                        }) {
+                            Image(systemName: "arrow.down.doc.fill")
+                        }
+
+                        // Manage Categories
+                        Button(action: { activeSheet = .categoryManager }) {
+                            Image(systemName: "tag.fill")
+                        }
+
+                        // Barcode Scanner
+                        Button(action: { activeSheet = .scanner }) {
                             Image(systemName: "barcode.viewfinder")
                         }
-                        Button(action: { showAddProductSheet = true }) {
+
+                        // Add Product
+                        Button(action: { activeSheet = .addProduct }) {
                             Image(systemName: "plus.circle.fill")
                                 .font(.title3)
                         }
                     }
                 }
             }
-            .sheet(isPresented: $showAddProductSheet) {
-                AddEditProductView(dataStore: dataStore)
+            .confirmationDialog("Supprimer ce produit ?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+                Button("Supprimer définitivement", role: .destructive) {
+                    if let p = productToDeleteDirectly {
+                        dataStore.deleteProduct(p)
+                        productToDeleteDirectly = nil
+                    }
+                }
+                Button("Annuler", role: .cancel) {
+                    productToDeleteDirectly = nil
+                }
+            } message: {
+                Text("Voulez-vous vraiment supprimer \"\(productToDeleteDirectly?.name ?? "")\" du catalogue ?")
             }
-            .sheet(item: $productToEdit) { product in
-                AddEditProductView(dataStore: dataStore, existingProduct: product)
-            }
-            .sheet(item: $productToAdjust) { product in
-                StockAdjustDialogView(product: product) { delta in
-                    dataStore.updateStock(productId: product.id, delta: delta)
+            .sheet(item: $activeSheet) { sheetType in
+                switch sheetType {
+                case .addProduct:
+                    AddEditProductView(dataStore: dataStore)
+
+                case .editProduct(let product):
+                    AddEditProductView(dataStore: dataStore, existingProduct: product)
+
+                case .adjustStock(let product):
+                    StockAdjustDialogView(product: product) { delta in
+                        dataStore.updateStock(productId: product.id, delta: delta)
+                    }
+
+                case .categoryManager:
+                    CategoryManagementSheetView(dataStore: dataStore)
+
+                case .scanner:
+                    CameraBarcodeScannerView { code in
+                        viewModel.searchQuery = code
+                    }
+
+                case .deletePin(let product):
+                    PinAuthSheetView(
+                        title: "Autorisation Admin pour Supprimer un Produit",
+                        correctPin: dataStore.settings.adminPin,
+                        onSuccess: {
+                            activeSheet = nil
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                dataStore.deleteProduct(product)
+                            }
+                        }
+                    )
                 }
             }
-            .sheet(item: $productToDeleteWithPin) { product in
-                PinAuthSheetView(
-                    title: "Autorisation Admin pour Supprimer un Produit",
-                    correctPin: dataStore.settings.adminPin,
-                    onSuccess: {
-                        dataStore.deleteProduct(product)
+        }
+    }
+}
+
+public struct CategoryManagementSheetView: View {
+    @ObservedObject var dataStore: DataStore
+    @Environment(\.presentationMode) var presentationMode
+
+    @State private var showAddCategory = false
+    @State private var newCategoryName = ""
+    @State private var selectedColorHex = "#3B82F6"
+
+    private let availableColors = [
+        "#3B82F6", "#10B981", "#F59E0B", "#EF4444",
+        "#8B5CF6", "#EC4899", "#14B8A6", "#6366F1", "#64748B"
+    ]
+
+    public var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                List {
+                    ForEach(dataStore.categories) { cat in
+                        HStack {
+                            Circle()
+                                .fill(Color(hex: cat.colorHex ?? "#3B82F6"))
+                                .frame(width: 16, height: 16)
+
+                            Text(cat.name)
+                                .font(.headline)
+
+                            Spacer()
+
+                            let count = dataStore.products.filter { $0.categoryId == cat.id }.count
+                            Text("\(count) article(s)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            Button(action: {
+                                dataStore.deleteCategory(cat)
+                            }) {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.red)
+                                    .padding(.leading, 8)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 4)
                     }
-                )
+                }
+                .listStyle(PlainListStyle())
             }
-            .sheet(isPresented: $showScannerSheet) {
-                CameraBarcodeScannerView { code in
-                    viewModel.searchQuery = code
+            .navigationTitle("Gestion des Catégories")
+            .navigationBarItems(
+                leading: Button("Fermer") { presentationMode.wrappedValue.dismiss() },
+                trailing: Button(action: { showAddCategory = true }) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title3)
+                }
+            )
+            .sheet(isPresented: $showAddCategory) {
+                NavigationView {
+                    Form {
+                        Section(header: Text("Nom de la Catégorie")) {
+                            TextField("Ex: Boissons, Snacks, Cosmétiques...", text: $newCategoryName)
+                        }
+
+                        Section(header: Text("Couleur d'Identification")) {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 44))], spacing: 12) {
+                                ForEach(availableColors, id: \.self) { hex in
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color(hex: hex))
+                                            .frame(width: 38, height: 38)
+
+                                        if selectedColorHex == hex {
+                                            Image(systemName: "checkmark")
+                                                .font(.headline)
+                                                .foregroundColor(.white)
+                                        }
+                                    }
+                                    .onTapGesture {
+                                        selectedColorHex = hex
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 8)
+                        }
+                    }
+                    .navigationTitle("Nouvelle Catégorie")
+                    .navigationBarItems(
+                        leading: Button("Annuler") { showAddCategory = false },
+                        trailing: Button("Ajouter") {
+                            let trimmed = newCategoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !trimmed.isEmpty {
+                                let cat = ProductCategory(name: trimmed, colorHex: selectedColorHex)
+                                dataStore.addOrUpdateCategory(cat)
+                                newCategoryName = ""
+                                showAddCategory = false
+                            }
+                        }.disabled(newCategoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    )
                 }
             }
         }
@@ -319,5 +523,32 @@ public struct StockAdjustDialogView: View {
             .navigationTitle("Ajustement de Stock")
             .navigationBarItems(leading: Button("Annuler") { presentationMode.wrappedValue.dismiss() })
         }
+    }
+}
+
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: // RGB (12-bit)
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: // RGB (24-bit)
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: // ARGB (32-bit)
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (1, 1, 1, 0)
+        }
+
+        self.init(
+            .sRGB,
+            red: Double(r) / 255,
+            green: Double(g) / 255,
+            blue:  Double(b) / 255,
+            opacity: Double(a) / 255
+        )
     }
 }

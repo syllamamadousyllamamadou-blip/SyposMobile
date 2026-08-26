@@ -3,6 +3,9 @@ import UIKit
 import PDFKit
 
 public class PdfExportManager {
+
+    // MARK: - Export Sales PDF
+
     public static func exportSalesPdf(tickets: [Ticket], settings: ShopSettings) -> URL? {
         let pdfMetaData = [
             kCGPDFContextCreator: "SYPOS Mobile iOS",
@@ -86,6 +89,92 @@ public class PdfExportManager {
             return nil
         }
     }
+
+    // MARK: - Export Z-Report PDF
+
+    public static func exportZReportPdf(zData: ZReportSummary, settings: ShopSettings) -> URL? {
+        let format = UIGraphicsPDFRendererFormat()
+        let pageWidth = 8.5 * 72.0
+        let pageHeight = 11.0 * 72.0
+        let pageRect = CGRect(x: 0, y: 0, width: pageWidth, height: pageHeight)
+        let renderer = UIGraphicsPDFRenderer(bounds: pageRect, format: format)
+
+        let data = renderer.pdfData { context in
+            context.beginPage()
+            let titleFont = UIFont.boldSystemFont(ofSize: 22)
+            let headerFont = UIFont.boldSystemFont(ofSize: 14)
+            let bodyFont = UIFont.systemFont(ofSize: 12)
+
+            var y: CGFloat = 40
+            let shopTitle = settings.shopName.isEmpty ? "SYPOS COMMERCE" : settings.shopName
+            shopTitle.draw(at: CGPoint(x: 40, y: y), withAttributes: [.font: titleFont])
+            y += 28
+
+            "RAPPORT Z DE CLÔTURE DE CAISSE".draw(at: CGPoint(x: 40, y: y), withAttributes: [.font: headerFont, .foregroundColor: UIColor.systemBlue])
+            y += 22
+
+            "Période : \(zData.dateText)".draw(at: CGPoint(x: 40, y: y), withAttributes: [.font: bodyFont, .foregroundColor: UIColor.darkGray])
+            y += 30
+
+            // Financial block
+            let cardRect = CGRect(x: 40, y: y, width: pageWidth - 80, height: 110)
+            UIColor.systemGray6.setFill()
+            UIRectFill(cardRect)
+
+            "CHIFFRE D'AFFAIRES TOTAL : \(Int(zData.totalSales)) CFA (\(zData.ticketsCount) tickets)".draw(at: CGPoint(x: 52, y: y + 14), withAttributes: [.font: headerFont])
+            "TOTAL DÉPENSES CAISSE   : -\(Int(zData.totalExpenses)) CFA".draw(at: CGPoint(x: 52, y: y + 42), withAttributes: [.font: bodyFont, .foregroundColor: UIColor.systemRed])
+            "CASH NET EN CAISSE      : \(Int(zData.netCashInDrawer)) CFA".draw(at: CGPoint(x: 52, y: y + 72), withAttributes: [.font: UIFont.boldSystemFont(ofSize: 16), .foregroundColor: UIColor.systemGreen])
+            y += 130
+
+            "VENTILATION DES PAIEMENTS".draw(at: CGPoint(x: 40, y: y), withAttributes: [.font: headerFont])
+            y += 24
+
+            let payments: [(String, Double)] = [
+                ("Espèces (Cash)", zData.cashSales),
+                ("Wave Money", zData.waveSales),
+                ("Orange Money", zData.orangeMoneySales),
+                ("MTN MoMo", zData.mtnSales),
+                ("Moov Money", zData.moovSales),
+                ("Carte Bancaire", zData.cardSales),
+                ("Ventes à Crédit", zData.creditSales)
+            ]
+
+            for (name, amt) in payments {
+                name.draw(at: CGPoint(x: 52, y: y), withAttributes: [.font: bodyFont])
+                "\(Int(amt)) CFA".draw(at: CGPoint(x: 350, y: y), withAttributes: [.font: UIFont.boldSystemFont(ofSize: 12)])
+                y += 20
+            }
+        }
+
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Rapport_Z_SYPOS_\(Int(Date().timeIntervalSince1970)).pdf")
+        do {
+            try data.write(to: tempURL)
+            return tempURL
+        } catch {
+            return nil
+        }
+    }
+
+    // MARK: - Export Products CSV
+
+    public static func exportProductsCsv(products: [Product], categories: [ProductCategory]) -> URL? {
+        var csv = "ID,Nom,Prix Vente,Prix Achat,Stock,Alerte Stock,Code Barre,Categorie\n"
+        for p in products {
+            let catName = categories.first(where: { $0.id == p.categoryId })?.name ?? "Aucune"
+            let line = "\"\(p.id)\",\"\(p.name.replacingOccurrences(of: "\"", with: "\"\""))\",\(Int(p.salePrice)),\(Int(p.costPrice)),\(p.stockQuantity),\(p.alertStock),\"\(p.barcode ?? "")\",\"\(catName)\"\n"
+            csv.append(line)
+        }
+
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("Catalogue_Produits_SYPOS_\(Int(Date().timeIntervalSince1970)).csv")
+        do {
+            try csv.write(to: tempURL, atomically: true, encoding: .utf8)
+            return tempURL
+        } catch {
+            return nil
+        }
+    }
+
+    // MARK: - Share Helper
 
     public static func shareFile(url: URL) {
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,

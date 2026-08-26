@@ -1,12 +1,26 @@
 import SwiftUI
 
+public enum ActiveReportSheet: Identifiable {
+    case addExpense
+    case zReport(ZReportSummary)
+    case deleteExpensePin(Expense)
+
+    public var id: String {
+        switch self {
+        case .addExpense: return "addExpense"
+        case .zReport(let z): return "zReport_\(z.dateText)_\(z.totalSales)"
+        case .deleteExpensePin(let e): return "deleteExpensePin_\(e.id)"
+        }
+    }
+}
+
 public struct ReportView: View {
     @ObservedObject var dataStore: DataStore
     @StateObject private var viewModel = ReportViewModel()
 
-    @State private var showAddExpenseSheet = false
-    @State private var showZReportSheet = false
-    @State private var expenseToDeleteWithPin: Expense? = nil
+    @State private var activeSheet: ActiveReportSheet? = nil
+    @State private var expenseToDeleteDirectly: Expense? = nil
+    @State private var showDeleteExpenseConfirmation = false
 
     public var body: some View {
         NavigationView {
@@ -43,7 +57,7 @@ public struct ReportView: View {
                     .padding(.horizontal, 16)
 
                     // Trigger Z-Report Button
-                    Button(action: { showZReportSheet = true }) {
+                    Button(action: { activeSheet = .zReport(zData) }) {
                         HStack {
                             Image(systemName: "printer.fill")
                             Text("Générer & Imprimer le Rapport Z de Caisse")
@@ -84,7 +98,7 @@ public struct ReportView: View {
                             Text("Dépenses de la Période")
                                 .font(.headline)
                             Spacer()
-                            Button(action: { showAddExpenseSheet = true }) {
+                            Button(action: { activeSheet = .addExpense }) {
                                 HStack(spacing: 4) {
                                     Image(systemName: "plus.circle.fill")
                                     Text("Ajouter")
@@ -123,9 +137,10 @@ public struct ReportView: View {
 
                                         Button(action: {
                                             if dataStore.settings.pinLockEnabled {
-                                                expenseToDeleteWithPin = exp
+                                                activeSheet = .deleteExpensePin(exp)
                                             } else {
-                                                dataStore.deleteExpense(exp)
+                                                expenseToDeleteDirectly = exp
+                                                showDeleteExpenseConfirmation = true
                                             }
                                         }) {
                                             Image(systemName: "trash")
@@ -149,21 +164,37 @@ public struct ReportView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Bilan & Rapport Z")
-            .sheet(isPresented: $showAddExpenseSheet) {
-                AddExpenseSheetView(dataStore: dataStore)
-            }
-            .sheet(isPresented: $showZReportSheet) {
-                let zData = viewModel.calculateZReport(tickets: dataStore.tickets, expenses: dataStore.expenses)
-                ZReportSheetView(zData: zData, dataStore: dataStore)
-            }
-            .sheet(item: $expenseToDeleteWithPin) { exp in
-                PinAuthSheetView(
-                    title: "Autorisation Admin pour Supprimer une Dépense",
-                    correctPin: dataStore.settings.adminPin,
-                    onSuccess: {
-                        dataStore.deleteExpense(exp)
+            .confirmationDialog("Supprimer cette dépense ?", isPresented: $showDeleteExpenseConfirmation, titleVisibility: .visible) {
+                Button("Supprimer définitivement", role: .destructive) {
+                    if let e = expenseToDeleteDirectly {
+                        dataStore.deleteExpense(e)
+                        expenseToDeleteDirectly = nil
                     }
-                )
+                }
+                Button("Annuler", role: .cancel) {
+                    expenseToDeleteDirectly = nil
+                }
+            }
+            .sheet(item: $activeSheet) { sheetType in
+                switch sheetType {
+                case .addExpense:
+                    AddExpenseSheetView(dataStore: dataStore)
+
+                case .zReport(let zData):
+                    ZReportSheetView(zData: zData, dataStore: dataStore)
+
+                case .deleteExpensePin(let exp):
+                    PinAuthSheetView(
+                        title: "Autorisation Admin pour Supprimer une Dépense",
+                        correctPin: dataStore.settings.adminPin,
+                        onSuccess: {
+                            activeSheet = nil
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                dataStore.deleteExpense(exp)
+                            }
+                        }
+                    )
+                }
             }
         }
     }
@@ -251,6 +282,9 @@ public struct ZReportSheetView: View {
     @ObservedObject var dataStore: DataStore
     @Environment(\.presentationMode) var presentationMode
 
+    @State private var printStatusMessage: String? = nil
+    @State private var isPrinting = false
+
     public var body: some View {
         NavigationView {
             ScrollView {
@@ -259,10 +293,10 @@ public struct ZReportSheetView: View {
                         Text("RAPPORT Z DE CAISSE")
                             .font(.title2)
                             .bold()
-                        Text(dataStore.settings.shopName)
+                        Text(dataStore.settings.shopName.isEmpty ? "SYPOS COMMERCE" : dataStore.settings.shopName)
                             .font(.subheadline)
                             .foregroundColor(.secondary)
-                        Text("Date : \(zData.dateText)")
+                        Text("Période : \(zData.dateText)")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -307,21 +341,56 @@ public struct ZReportSheetView: View {
                     .cornerRadius(12)
                     .padding(.horizontal, 16)
 
-                    Button(action: {
-                        // Print Z-Report
-                        presentationMode.wrappedValue.dismiss()
-                    }) {
-                        HStack {
-                            Image(systemName: "printer.fill")
-                            Text("Imprimer sur Imprimante Thermique")
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
-                        .padding(.horizontal, 16)
+                    if let msg = printStatusMessage {
+                        Text(msg)
+                            .font(.caption)
+                            .bold()
+                            .foregroundColor(.blue)
                     }
+
+                    VStack(spacing: 12) {
+                        Button(action: {
+                            isPrinting = true
+                            printStatusMessage = "Envoi à l'imprimante Bluetooth..."
+                            BluetoothPrinterManager.shared.printZReport(zData: zData, settings: dataStore.settings) { result in
+                                isPrinting = false
+                                switch result {
+                                case .success:
+                                    printStatusMessage = "✅ Rapport Z imprimé avec succès !"
+                                case .failure(let err):
+                                    printStatusMessage = "❌ Erreur: \(err.localizedDescription)"
+                                }
+                            }
+                        }) {
+                            HStack {
+                                Image(systemName: "printer.fill")
+                                Text(isPrinting ? "Impression en cours..." : "Imprimer sur Imprimante Thermique")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                        }
+                        .disabled(isPrinting)
+
+                        Button(action: {
+                            if let url = PdfExportManager.exportZReportPdf(zData: zData, settings: dataStore.settings) {
+                                PdfExportManager.shareFile(url: url)
+                            }
+                        }) {
+                            HStack {
+                                Image(systemName: "square.and.arrow.up")
+                                Text("Partager Rapport Z (WhatsApp / PDF)")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                        }
+                    }
+                    .padding(.horizontal, 16)
                 }
             }
             .navigationTitle("Clôture de Caisse")

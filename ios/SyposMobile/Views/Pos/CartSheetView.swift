@@ -8,6 +8,7 @@ public struct CartSheetView: View {
     public var onRemoveItemRequested: (String) -> Void
     public var onHoldRequested: () -> Void
     public var onCheckoutRequested: () -> Void
+    public var onEditItemRequested: (CartItem) -> Void
     @Environment(\.presentationMode) var presentationMode
 
     @State private var promoCodeInput = ""
@@ -46,9 +47,27 @@ public struct CartSheetView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(item.product.name)
                                         .font(.headline)
-                                    Text("\(Int(item.product.salePrice)) CFA / unité")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
+                                    HStack(spacing: 6) {
+                                        Text("\(Int(item.unitPrice)) CFA / u")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                        if item.customPrice != nil {
+                                            Text("(Prix Modifié)")
+                                                .font(.caption2)
+                                                .bold()
+                                                .foregroundColor(.orange)
+                                        }
+                                        if item.discountPercent > 0 {
+                                            Text("-\(Int(item.discountPercent))%")
+                                                .font(.caption2)
+                                                .bold()
+                                                .foregroundColor(.green)
+                                        }
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    onEditItemRequested(item)
                                 }
 
                                 Spacer()
@@ -126,7 +145,7 @@ public struct CartSheetView: View {
 
                         if viewModel.discountAmount > 0 {
                             HStack {
-                                Text("Remise Promo")
+                                Text("Remise Promo / Globale")
                                 Spacer()
                                 Text("-\(Int(viewModel.discountAmount)) CFA")
                                     .foregroundColor(.green)
@@ -189,6 +208,146 @@ public struct CartSheetView: View {
                 leading: Button("Fermer") { presentationMode.wrappedValue.dismiss() },
                 trailing: Button("Vider", action: onClearCartRequested).foregroundColor(.red)
             )
+        }
+    }
+}
+
+public struct EditCartItemSheetView: View {
+    public var item: CartItem
+    public var onSave: (Double?, Double) -> Void
+    @Environment(\.presentationMode) var presentationMode
+
+    @State private var priceInput: String = ""
+    @State private var discountInput: String = ""
+
+    public var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Article")) {
+                    Text(item.product.name)
+                        .font(.headline)
+                    Text("Prix catalogue standard : \(Int(item.product.salePrice)) CFA")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Section(header: Text("Prix Unitaire Personnalisé")) {
+                    TextField("Prix unitaire (CFA)", text: $priceInput)
+                        .keyboardType(.numberPad)
+                }
+
+                Section(header: Text("Remise sur cet article (%)")) {
+                    TextField("Remise en % (ex: 10)", text: $discountInput)
+                        .keyboardType(.numberPad)
+                }
+            }
+            .navigationTitle("Modifier l'Article")
+            .navigationBarItems(
+                leading: Button("Annuler") { presentationMode.wrappedValue.dismiss() },
+                trailing: Button("Appliquer") {
+                    let customPrice = Double(priceInput)
+                    let discount = Double(discountInput) ?? 0.0
+                    onSave(customPrice, discount)
+                    presentationMode.wrappedValue.dismiss()
+                }
+            )
+            .onAppear {
+                priceInput = item.customPrice != nil ? "\(Int(item.customPrice!))" : "\(Int(item.product.salePrice))"
+                discountInput = item.discountPercent > 0 ? "\(Int(item.discountPercent))" : ""
+            }
+        }
+    }
+}
+
+public struct HeldCartsSheetView: View {
+    @ObservedObject var dataStore: DataStore
+    public var onResumeTicket: (Ticket) -> Void
+    @Environment(\.presentationMode) var presentationMode
+
+    public var body: some View {
+        NavigationView {
+            Group {
+                let held = dataStore.heldTickets
+                if held.isEmpty {
+                    VStack(spacing: 16) {
+                        Image(systemName: "pause.circle")
+                            .font(.system(size: 64))
+                            .foregroundColor(.secondary)
+                        Text("Aucun panier en attente")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding()
+                } else {
+                    List {
+                        ForEach(held) { ticket in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text(ticket.ticketNumber)
+                                        .font(.headline)
+                                        .bold()
+                                    Spacer()
+                                    Text("\(Int(ticket.totalAmount)) CFA")
+                                        .font(.headline)
+                                        .foregroundColor(.blue)
+                                }
+
+                                if let note = ticket.note, !note.isEmpty {
+                                    Text(note)
+                                        .font(.subheadline)
+                                        .bold()
+                                        .foregroundColor(.orange)
+                                }
+
+                                HStack {
+                                    let formatter = DateFormatter()
+                                    let _ = formatter.dateFormat = "dd/MM HH:mm"
+                                    Text(formatter.string(from: ticket.date))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                    Text("\(ticket.items.count) article(s)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                HStack(spacing: 12) {
+                                    Button(action: {
+                                        presentationMode.wrappedValue.dismiss()
+                                        onResumeTicket(ticket)
+                                    }) {
+                                        HStack {
+                                            Image(systemName: "play.circle.fill")
+                                            Text("Reprendre ce panier")
+                                        }
+                                        .font(.subheadline.weight(.bold))
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 8)
+                                        .background(Color.green)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(8)
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    Button(action: {
+                                        dataStore.deleteHeldTicket(ticketId: ticket.id)
+                                    }) {
+                                        Image(systemName: "trash")
+                                            .foregroundColor(.red)
+                                            .padding(8)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                .padding(.top, 4)
+                            }
+                            .padding(.vertical, 6)
+                        }
+                    }
+                    .listStyle(PlainListStyle())
+                }
+            }
+            .navigationTitle("Paniers en Attente (\(dataStore.heldTickets.count))")
+            .navigationBarItems(trailing: Button("Fermer") { presentationMode.wrappedValue.dismiss() })
         }
     }
 }

@@ -5,9 +5,23 @@ public struct CartItem: Identifiable, Equatable {
     public var id: String { product.id }
     public var product: Product
     public var quantity: Int
+    public var customPrice: Double?
+    public var discountPercent: Double
+
+    public init(product: Product, quantity: Int = 1, customPrice: Double? = nil, discountPercent: Double = 0.0) {
+        self.product = product
+        self.quantity = quantity
+        self.customPrice = customPrice
+        self.discountPercent = discountPercent
+    }
+
+    public var unitPrice: Double {
+        customPrice ?? product.salePrice
+    }
 
     public var total: Double {
-        product.salePrice * Double(quantity)
+        let base = unitPrice * Double(quantity)
+        return base * (1.0 - (discountPercent / 100.0))
     }
 }
 
@@ -18,7 +32,7 @@ public class PosViewModel: ObservableObject {
     @Published public var selectedCustomer: Customer? = nil
     @Published public var selectedOrderType: OrderType = .takeaway
     @Published public var appliedPromoCode: PromoCode? = nil
-    @Published public var discountAmount: Double = 0.0
+    @Published public var globalDiscountPercent: Double = 0.0
 
     private var dataStore: DataStore
     private var cancellables = Set<AnyCancellable>()
@@ -31,16 +45,27 @@ public class PosViewModel: ObservableObject {
         cart.reduce(0) { $0 + $1.total }
     }
 
+    public var effectiveDiscountPercent: Double {
+        max(globalDiscountPercent, appliedPromoCode?.discountPercent ?? 0.0)
+    }
+
+    public var discountAmount: Double {
+        subTotal * (effectiveDiscountPercent / 100.0)
+    }
+
+    public var netAfterDiscount: Double {
+        max(0, subTotal - discountAmount)
+    }
+
     public var taxAmount: Double {
         if dataStore.settings.taxEnabled {
-            let taxable = max(0, subTotal - discountAmount)
-            return taxable * (dataStore.settings.taxRatePercent / 100.0)
+            return netAfterDiscount * (dataStore.settings.taxRatePercent / 100.0)
         }
         return 0.0
     }
 
     public var totalAmount: Double {
-        max(0, subTotal - discountAmount) + taxAmount
+        netAfterDiscount + taxAmount
     }
 
     public var totalItemCount: Int {
@@ -49,7 +74,6 @@ public class PosViewModel: ObservableObject {
 
     public func addToCart(product: Product) {
         if let index = cart.firstIndex(where: { $0.product.id == product.id }) {
-            // Check stock limit if negative stock not allowed
             if !dataStore.settings.allowNegativeStock && cart[index].quantity >= product.stockQuantity {
                 return
             }
@@ -82,6 +106,18 @@ public class PosViewModel: ObservableObject {
         }
     }
 
+    public func updateCartItemPrice(productId: String, customPrice: Double?) {
+        if let index = cart.firstIndex(where: { $0.product.id == productId }) {
+            cart[index].customPrice = customPrice
+        }
+    }
+
+    public func updateCartItemDiscount(productId: String, discountPercent: Double) {
+        if let index = cart.firstIndex(where: { $0.product.id == productId }) {
+            cart[index].discountPercent = discountPercent
+        }
+    }
+
     public func removeFromCart(productId: String) {
         cart.removeAll { $0.product.id == productId }
     }
@@ -89,7 +125,7 @@ public class PosViewModel: ObservableObject {
     public func clearCart() {
         cart.removeAll()
         appliedPromoCode = nil
-        discountAmount = 0.0
+        globalDiscountPercent = 0.0
         selectedCustomer = nil
     }
 
@@ -106,13 +142,11 @@ public class PosViewModel: ObservableObject {
         }
 
         appliedPromoCode = promo
-        discountAmount = subTotal * (promo.discountPercent / 100.0)
         completion(true, "Code promo appliqué : -\(Int(promo.discountPercent))%")
     }
 
     public func removePromoCode() {
         appliedPromoCode = nil
-        discountAmount = 0.0
     }
 
     public func holdCart(note: String) {
@@ -120,7 +154,7 @@ public class PosViewModel: ObservableObject {
 
         let number = "HOLD-\(Int(Date().timeIntervalSince1970) % 10000)"
         let items = cart.map {
-            TicketItem(ticketId: number, productId: $0.product.id, productName: $0.product.name, quantity: $0.quantity, unitPrice: $0.product.salePrice, total: $0.total)
+            TicketItem(ticketId: number, productId: $0.product.id, productName: $0.product.name, quantity: $0.quantity, unitPrice: $0.unitPrice, total: $0.total)
         }
 
         let ticket = Ticket(
@@ -146,7 +180,7 @@ public class PosViewModel: ObservableObject {
         clearCart()
         for item in ticket.items {
             if let prod = dataStore.products.first(where: { $0.id == item.productId }) {
-                cart.append(CartItem(product: prod, quantity: item.quantity))
+                cart.append(CartItem(product: prod, quantity: item.quantity, customPrice: item.unitPrice != prod.salePrice ? item.unitPrice : nil))
             } else {
                 let prod = Product(id: item.productId, name: item.productName, salePrice: item.unitPrice, stockQuantity: 999)
                 cart.append(CartItem(product: prod, quantity: item.quantity))
@@ -164,7 +198,7 @@ public class PosViewModel: ObservableObject {
         let change = method == .cash ? max(0, amountPaid - totalAmount) : 0.0
 
         let items = cart.map {
-            TicketItem(ticketId: number, productId: $0.product.id, productName: $0.product.name, quantity: $0.quantity, unitPrice: $0.product.salePrice, total: $0.total)
+            TicketItem(ticketId: number, productId: $0.product.id, productName: $0.product.name, quantity: $0.quantity, unitPrice: $0.unitPrice, total: $0.total)
         }
 
         let ticket = Ticket(
@@ -190,7 +224,6 @@ public class PosViewModel: ObservableObject {
             dataStore.incrementPromoUsage(code: promo.code)
         }
 
-        // Auto Print if enabled
         if dataStore.settings.autoPrintReceipt {
             BluetoothPrinterManager.shared.printTicket(ticket: ticket, customerName: selectedCustomer?.name, settings: dataStore.settings) { _ in }
         }

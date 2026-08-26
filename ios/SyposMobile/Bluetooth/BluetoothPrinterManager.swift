@@ -39,28 +39,51 @@ public struct LabelPrintOptions {
     }
 }
 
+public struct DeliveryNoteData {
+    public var recipientName: String
+    public var recipientPhone: String
+    public var deliveryAddress: String
+    public var itemsSummary: String
+    public var amountToCollect: Double
+    public var deliveryFee: Double
+    public var note: String?
+
+    public init(
+        recipientName: String,
+        recipientPhone: String,
+        deliveryAddress: String,
+        itemsSummary: String,
+        amountToCollect: Double,
+        deliveryFee: Double = 0.0,
+        note: String? = nil
+    ) {
+        self.recipientName = recipientName
+        self.recipientPhone = recipientPhone
+        self.deliveryAddress = deliveryAddress
+        self.itemsSummary = itemsSummary
+        self.amountToCollect = amountToCollect
+        self.deliveryFee = deliveryFee
+        self.note = note
+    }
+}
+
 public class BluetoothPrinterManager: NSObject, ObservableObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     public static let shared = BluetoothPrinterManager()
 
     @Published public var discoveredPrinters: [BluetoothPrinterDevice] = []
     @Published public var connectedPrinter: CBPeripheral?
+    @Published public var connectedPrinterName: String?
     @Published public var isScanning = false
     @Published public var isConnected = false
 
     private var centralManager: CBCentralManager!
     private var targetCharacteristic: CBCharacteristic?
-
-    // Common ESC/POS BLE Service UUIDs
-    private let serviceUUIDs: [CBUUID] = [
-        CBUUID(string: "E7810A71-73AE-499D-8C15-FAA9AEF0C3F2"),
-        CBUUID(string: "49535343-FE7D-4AE5-8FA9-9FAFD205E455"),
-        CBUUID(string: "18F0"),
-        CBUUID(string: "FF00")
-    ]
+    private var pendingPrintData: Data?
+    private var pendingPrintCompletion: ((Result<Void, Error>) -> Void)?
 
     public override init() {
         super.init()
-        centralManager = CBCentralManager(delegate: self, queue: nil)
+        centralManager = CBCentralManager(delegate: self, queue: nil, options: [CBCentralManagerOptionShowPowerAlertKey: true])
     }
 
     public func startScanning() {
@@ -80,41 +103,88 @@ public class BluetoothPrinterManager: NSObject, ObservableObject, CBCentralManag
     }
 
     public func connect(to device: BluetoothPrinterDevice) {
-        connectedPrinter = device.peripheral
-        device.peripheral.delegate = self
-        centralManager.connect(device.peripheral, options: nil)
+        connect(peripheral: device.peripheral, name: device.name)
+    }
+
+    public func connect(peripheral: CBPeripheral, name: String? = nil) {
+        connectedPrinter = peripheral
+        connectedPrinterName = name ?? peripheral.name ?? "Imprimante Thermique"
+        peripheral.delegate = self
+        centralManager.connect(peripheral, options: [
+            CBConnectPeripheralOptionNotifyOnConnectionKey: true,
+            CBConnectPeripheralOptionNotifyOnDisconnectionKey: true
+        ])
+    }
+
+    public func autoConnectSavedPrinter(savedUUIDString: String?) {
+        guard centralManager.state == .poweredOn, let uuidString = savedUUIDString, let uuid = UUID(uuidString: uuidString) else { return }
+        if isConnected && connectedPrinter?.identifier == uuid { return }
+
+        let known = centralManager.retrievePeripherals(withIdentifiers: [uuid])
+        if let target = known.first {
+            connect(peripheral: target, name: target.name)
+        } else {
+            startScanning()
+        }
     }
 
     public func disconnect() {
         if let peripheral = connectedPrinter {
             centralManager.cancelPeripheralConnection(peripheral)
         }
+        connectedPrinter = nil
+        connectedPrinterName = nil
+        isConnected = false
+        targetCharacteristic = nil
     }
 
     // MARK: - CBCentralManagerDelegate
 
     public func centralManagerDidUpdateState(_ central: CBCentralManager) {
         if central.state == .poweredOn {
-            startScanning()
+            if let saved = DataStore.shared.settings.bluetoothPrinterUUID {
+                autoConnectSavedPrinter(savedUUIDString: saved)
+            } else {
+                startScanning()
+            }
+        } else {
+            isConnected = false
+            connectedPrinter = nil
+            targetCharacteristic = nil
         }
     }
 
     public func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi RSSI: NSNumber) {
         let name = peripheral.name ?? advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? "Imprimante BLE"
         if !discoveredPrinters.contains(where: { $0.peripheral.identifier == peripheral.identifier }) {
-            let device = BluetoothPrinterDevice(name: name, peripheral: peripheral)
+            let device = BluetoothPrinterDevice(id: peripheral.identifier, name: name, peripheral: peripheral)
             discoveredPrinters.append(device)
+        }
+
+        if let savedUUID = DataStore.shared.settings.bluetoothPrinterUUID, peripheral.identifier.uuidString == savedUUID, !isConnected {
+            connect(peripheral: peripheral, name: name)
         }
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        isConnected = true
+        DispatchQueue.main.async {
+            self.isConnected = true
+        }
         peripheral.discoverServices(nil)
     }
 
     public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        isConnected = false
-        targetCharacteristic = nil
+        DispatchQueue.main.async {
+            self.isConnected = false
+            self.targetCharacteristic = nil
+        }
+
+        // Auto-reconnect if it was our saved printer
+        if let savedUUID = DataStore.shared.settings.bluetoothPrinterUUID, peripheral.identifier.uuidString == savedUUID {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                self?.autoConnectSavedPrinter(savedUUIDString: savedUUID)
+            }
+        }
     }
 
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
@@ -129,9 +199,41 @@ public class BluetoothPrinterManager: NSObject, ObservableObject, CBCentralManag
         for characteristic in characteristics {
             if characteristic.properties.contains(.write) || characteristic.properties.contains(.writeWithoutResponse) {
                 targetCharacteristic = characteristic
+                if let data = pendingPrintData, let completion = pendingPrintCompletion {
+                    pendingPrintData = nil
+                    pendingPrintCompletion = nil
+                    sendData(data, completion: completion)
+                }
                 break
             }
         }
+    }
+
+    // MARK: - Test Printer
+
+    public func testPrinter(settings: ShopSettings, completion: @escaping (Result<Void, Error>) -> Void) {
+        var data = Data()
+        data.append(contentsOf: [0x1B, 0x40]) // ESC @
+        data.append(contentsOf: [0x1B, 0x61, 0x01]) // Center
+        data.append(contentsOf: [0x1B, 0x45, 0x01]) // Bold
+        data.append(contentsOf: [0x1B, 0x21, 0x10]) // Double height
+        data.append(cleanData("\(settings.shopName.isEmpty ? "SYPOS COMMERCE" : settings.shopName)\n"))
+        data.append(contentsOf: [0x1B, 0x21, 0x00])
+        data.append(contentsOf: [0x1B, 0x45, 0x00])
+        data.append(cleanData("--------------------------------\n"))
+        data.append(contentsOf: [0x1B, 0x45, 0x01])
+        data.append(cleanData("TEST D'IMPRESSION REUSSI !\n"))
+        data.append(contentsOf: [0x1B, 0x45, 0x00])
+        data.append(cleanData("SYPOS Mobile iOS — Version Pro\n"))
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd/MM/yyyy HH:mm:ss"
+        data.append(cleanData("Date : \(formatter.string(from: Date()))\n"))
+        data.append(cleanData("--------------------------------\n"))
+        data.append(cleanData("Imprimante connectee et prete.\n"))
+        data.append(contentsOf: [0x1B, 0x64, 0x03])
+        data.append(contentsOf: [0x1D, 0x56, 0x41, 0x00])
+
+        sendData(data, completion: completion)
     }
 
     // MARK: - Printing ESC/POS Methods
@@ -232,10 +334,10 @@ public class BluetoothPrinterManager: NSObject, ObservableObject, CBCentralManag
             data.append(cleanData("\(settings.receiptFooter)\n"))
         }
 
-        // Publisher Signature in small compact font
+        // Publisher Signature
         if settings.showPublisherSignature {
             data.append(contentsOf: [0x1B, 0x21, 0x01]) // Font B small
-            data.append(cleanData("Solution: SYPOS MOBILE 0758245530\n"))
+            data.append(cleanData("\(settings.publisherSignatureText)\n"))
             data.append(contentsOf: [0x1B, 0x21, 0x00]) // Normal
         }
 
@@ -244,6 +346,135 @@ public class BluetoothPrinterManager: NSObject, ObservableObject, CBCentralManag
 
         sendData(data, completion: completion)
     }
+
+    // MARK: - Print Z-Report (Clôture de Caisse)
+
+    public func printZReport(zData: ZReportSummary, settings: ShopSettings, completion: @escaping (Result<Void, Error>) -> Void) {
+        var data = Data()
+
+        data.append(contentsOf: [0x1B, 0x40]) // ESC @
+        data.append(contentsOf: [0x1B, 0x61, 0x01]) // Center
+        data.append(contentsOf: [0x1B, 0x45, 0x01]) // Bold
+        data.append(contentsOf: [0x1B, 0x21, 0x10]) // Double height
+        data.append(cleanData("RAPPORT Z DE CAISSE\n"))
+        data.append(contentsOf: [0x1B, 0x21, 0x00])
+        data.append(cleanData("\(settings.shopName.isEmpty ? "SYPOS COMMERCE" : settings.shopName)\n"))
+        data.append(contentsOf: [0x1B, 0x45, 0x00])
+
+        if !settings.shopPhone.isEmpty {
+            data.append(cleanData("Tel: \(settings.shopPhone)\n"))
+        }
+        data.append(cleanData("Periode : \(zData.dateText)\n"))
+        data.append(cleanData("--------------------------------\n"))
+
+        data.append(contentsOf: [0x1B, 0x61, 0x00]) // Align Left
+        data.append(contentsOf: [0x1B, 0x45, 0x01])
+        data.append(cleanData(formatTwoColumns("TOTAL VENTES", formatMoney(zData.totalSales), width: 32) + "\n"))
+        data.append(contentsOf: [0x1B, 0x45, 0x00])
+        data.append(cleanData(formatTwoColumns("Nombre de tickets", "\(zData.ticketsCount)", width: 32) + "\n"))
+        data.append(cleanData(formatTwoColumns("Total Depenses", "-\(formatMoney(zData.totalExpenses))", width: 32) + "\n"))
+
+        data.append(cleanData("--------------------------------\n"))
+        data.append(contentsOf: [0x1B, 0x45, 0x01])
+        data.append(cleanData("VENTILATION DES ENCAISSEMENTS\n"))
+        data.append(contentsOf: [0x1B, 0x45, 0x00])
+        data.append(cleanData("--------------------------------\n"))
+
+        data.append(cleanData(formatTwoColumns("Especes (Cash)", formatMoney(zData.cashSales), width: 32) + "\n"))
+        data.append(cleanData(formatTwoColumns("Wave Money", formatMoney(zData.waveSales), width: 32) + "\n"))
+        data.append(cleanData(formatTwoColumns("Orange Money", formatMoney(zData.orangeMoneySales), width: 32) + "\n"))
+        data.append(cleanData(formatTwoColumns("MTN MoMo", formatMoney(zData.mtnSales), width: 32) + "\n"))
+        data.append(cleanData(formatTwoColumns("Moov Money", formatMoney(zData.moovSales), width: 32) + "\n"))
+        data.append(cleanData(formatTwoColumns("Carte Bancaire", formatMoney(zData.cardSales), width: 32) + "\n"))
+        data.append(cleanData(formatTwoColumns("Ventes a Credit", formatMoney(zData.creditSales), width: 32) + "\n"))
+
+        data.append(cleanData("================================\n"))
+        data.append(contentsOf: [0x1B, 0x45, 0x01])
+        data.append(contentsOf: [0x1B, 0x21, 0x10])
+        data.append(cleanData(formatTwoColumns("CASH NET CAISSE", formatMoney(zData.netCashInDrawer), width: 32) + "\n"))
+        data.append(contentsOf: [0x1B, 0x21, 0x00])
+        data.append(contentsOf: [0x1B, 0x45, 0x00])
+        data.append(cleanData("================================\n"))
+
+        data.append(contentsOf: [0x1B, 0x61, 0x01]) // Center
+        let nowFormatter = DateFormatter()
+        nowFormatter.dateFormat = "dd/MM/yyyy HH:mm"
+        data.append(cleanData("Edite le : \(nowFormatter.string(from: Date()))\n"))
+        if settings.showPublisherSignature {
+            data.append(contentsOf: [0x1B, 0x21, 0x01])
+            data.append(cleanData("\(settings.publisherSignatureText)\n"))
+            data.append(contentsOf: [0x1B, 0x21, 0x00])
+        }
+
+        data.append(contentsOf: [0x1B, 0x64, 0x03])
+        data.append(contentsOf: [0x1D, 0x56, 0x41, 0x00])
+
+        sendData(data, completion: completion)
+    }
+
+    // MARK: - Print Delivery Note (Bordereau de Livraison)
+
+    public func printDeliveryNote(data note: DeliveryNoteData, settings: ShopSettings, completion: @escaping (Result<Void, Error>) -> Void) {
+        var printData = Data()
+
+        printData.append(contentsOf: [0x1B, 0x40]) // ESC @
+        printData.append(contentsOf: [0x1B, 0x61, 0x01]) // Center
+        printData.append(contentsOf: [0x1B, 0x45, 0x01])
+        printData.append(contentsOf: [0x1B, 0x21, 0x10])
+        printData.append(cleanData("BON DE LIVRAISON\n"))
+        printData.append(contentsOf: [0x1B, 0x21, 0x00])
+        printData.append(cleanData("\(settings.shopName.isEmpty ? "SYPOS COMMERCE" : settings.shopName)\n"))
+        printData.append(contentsOf: [0x1B, 0x45, 0x00])
+
+        if !settings.shopPhone.isEmpty {
+            printData.append(cleanData("Tel Boutique: \(settings.shopPhone)\n"))
+        }
+
+        printData.append(cleanData("--------------------------------\n"))
+        printData.append(contentsOf: [0x1B, 0x61, 0x00]) // Left
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd/MM/yyyy HH:mm"
+        printData.append(cleanData("Date        : \(formatter.string(from: Date()))\n"))
+        printData.append(cleanData("Destinataire: \(note.recipientName)\n"))
+        printData.append(cleanData("Contact     : \(note.recipientPhone)\n"))
+        printData.append(cleanData("Adresse     : \(note.deliveryAddress)\n"))
+
+        printData.append(cleanData("--------------------------------\n"))
+        printData.append(contentsOf: [0x1B, 0x45, 0x01])
+        printData.append(cleanData("CONTENU DU COLIS :\n"))
+        printData.append(contentsOf: [0x1B, 0x45, 0x00])
+        printData.append(cleanData("\(note.itemsSummary)\n"))
+
+        if let extraNote = note.note, !extraNote.isEmpty {
+            printData.append(cleanData("Note: \(extraNote)\n"))
+        }
+
+        printData.append(cleanData("--------------------------------\n"))
+        printData.append(cleanData(formatTwoColumns("Frais Livraison", formatMoney(note.deliveryFee), width: 32) + "\n"))
+        printData.append(contentsOf: [0x1B, 0x45, 0x01])
+        printData.append(contentsOf: [0x1B, 0x21, 0x10])
+        printData.append(cleanData(formatTwoColumns("NET A ENCAISSER", formatMoney(note.amountToCollect + note.deliveryFee), width: 32) + "\n"))
+        printData.append(contentsOf: [0x1B, 0x21, 0x00])
+        printData.append(contentsOf: [0x1B, 0x45, 0x00])
+
+        printData.append(cleanData("--------------------------------\n"))
+        printData.append(contentsOf: [0x1B, 0x61, 0x01]) // Center
+        printData.append(cleanData("Signature du Client :\n\n\n"))
+        printData.append(cleanData("...............................\n"))
+
+        if settings.showPublisherSignature {
+            printData.append(contentsOf: [0x1B, 0x21, 0x01])
+            printData.append(cleanData("\(settings.publisherSignatureText)\n"))
+            data.append(contentsOf: [0x1B, 0x21, 0x00])
+        }
+
+        printData.append(contentsOf: [0x1B, 0x64, 0x03])
+        printData.append(contentsOf: [0x1D, 0x56, 0x41, 0x00])
+
+        sendData(printData, completion: completion)
+    }
+
+    // MARK: - Print Barcode Label
 
     public func printBarcodeLabel(productName: String, price: Double, barcode: String?, settings: ShopSettings, options: LabelPrintOptions, completion: @escaping (Result<Void, Error>) -> Void) {
         var data = Data()
@@ -298,21 +529,40 @@ public class BluetoothPrinterManager: NSObject, ObservableObject, CBCentralManag
 
     private func sendData(_ data: Data, completion: @escaping (Result<Void, Error>) -> Void) {
         guard let peripheral = connectedPrinter, let characteristic = targetCharacteristic else {
-            completion(.failure(NSError(domain: "SYPOS", code: -1, userInfo: [NSLocalizedDescriptionKey: "Aucune imprimante Bluetooth connectée"])))
+            // Attempt auto-reconnect if saved
+            if let saved = DataStore.shared.settings.bluetoothPrinterUUID {
+                pendingPrintData = data
+                pendingPrintCompletion = completion
+                autoConnectSavedPrinter(savedUUIDString: saved)
+                // Timeout if reconnect fails
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
+                    if self?.pendingPrintData != nil {
+                        self?.pendingPrintData = nil
+                        self?.pendingPrintCompletion = nil
+                        completion(.failure(NSError(domain: "SYPOS", code: -1, userInfo: [NSLocalizedDescriptionKey: "Impossible de joindre l'imprimante Bluetooth. Veuillez vérifier qu'elle est allumée."])))
+                    }
+                }
+                return
+            }
+
+            completion(.failure(NSError(domain: "SYPOS", code: -1, userInfo: [NSLocalizedDescriptionKey: "Aucune imprimante Bluetooth connectée. Rendez-vous dans Paramètres pour connecter votre imprimante."])))
             return
         }
 
         // Send in chunks of 100 bytes for BLE reliability
-        let chunkSize = 100
-        var offset = 0
-        while offset < data.count {
-            let chunk = data.subdata(in: offset..<min(offset + chunkSize, data.count))
-            peripheral.writeValue(chunk, for: characteristic, type: .withoutResponse)
-            offset += chunkSize
-            Thread.sleep(forTimeInterval: 0.01)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let chunkSize = 100
+            var offset = 0
+            while offset < data.count {
+                let chunk = data.subdata(in: offset..<min(offset + chunkSize, data.count))
+                peripheral.writeValue(chunk, for: characteristic, type: .withoutResponse)
+                offset += chunkSize
+                Thread.sleep(forTimeInterval: 0.015)
+            }
+            DispatchQueue.main.async {
+                completion(.success(()))
+            }
         }
-
-        completion(.success(()))
     }
 
     // MARK: - Helper Text Formatter (Zero question marks on receipts)
@@ -359,7 +609,6 @@ public class BluetoothPrinterManager: NSObject, ObservableObject, CBCentralManag
     }
 
     private func generateBarcodeRaster(data: String, width: Int, height: Int) -> Data {
-        // Generates monochrome GS v 0 raster bitmap
         guard let filter = CIFilter(name: "CICode128BarcodeGenerator") else { return Data() }
         filter.setValue(data.data(using: .ascii), forKey: "inputMessage")
         guard let ciImage = filter.outputImage else { return Data() }
@@ -375,7 +624,6 @@ public class BluetoothPrinterManager: NSObject, ObservableObject, CBCentralManag
         rasterData.append(UInt8(height & 0xFF))
         rasterData.append(UInt8((height >> 8) & 0xFF))
 
-        // Create bitmap context
         let colorSpace = CGColorSpaceCreateDeviceGray()
         var rawData = [UInt8](repeating: 255, count: width * height)
         let bitmapContext = CGContext(data: &rawData, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width, space: colorSpace, bitmapInfo: CGImageAlphaInfo.none.rawValue)

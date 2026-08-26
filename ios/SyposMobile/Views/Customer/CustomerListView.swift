@@ -1,13 +1,28 @@
 import SwiftUI
 
+public enum ActiveCustomerSheet: Identifiable {
+    case addCustomer
+    case editCustomer(Customer)
+    case settleDebt(Customer)
+    case deleteCustomerPin(Customer)
+
+    public var id: String {
+        switch self {
+        case .addCustomer: return "addCustomer"
+        case .editCustomer(let c): return "edit_\(c.id)"
+        case .settleDebt(let c): return "settle_\(c.id)"
+        case .deleteCustomerPin(let c): return "deletePin_\(c.id)"
+        }
+    }
+}
+
 public struct CustomerListView: View {
     @ObservedObject var dataStore: DataStore
     @StateObject private var viewModel = CustomerViewModel()
 
-    @State private var showAddCustomerSheet = false
-    @State private var customerToEdit: Customer? = nil
-    @State private var customerToSettle: Customer? = nil
-    @State private var customerToDeleteWithPin: Customer? = nil
+    @State private var activeSheet: ActiveCustomerSheet? = nil
+    @State private var customerToDeleteDirectly: Customer? = nil
+    @State private var showDeleteConfirmation = false
 
     public var body: some View {
         NavigationView {
@@ -39,101 +54,142 @@ public struct CustomerListView: View {
 
                 let filtered = viewModel.filteredCustomers(customers: dataStore.customers)
 
-                List {
-                    ForEach(filtered) { customer in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(customer.name)
-                                    .font(.headline)
+                if filtered.isEmpty {
+                    VStack(spacing: 12) {
+                        Spacer()
+                        Image(systemName: "person.crop.circle.badge.plus")
+                            .font(.system(size: 48))
+                            .foregroundColor(.secondary)
+                        Text(dataStore.customers.isEmpty ? "Aucun client enregistré" : "Aucun client trouvé")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                        Button("Ajouter un client") {
+                            activeSheet = .addCustomer
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                        Spacer()
+                    }
+                } else {
+                    List {
+                        ForEach(filtered) { customer in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(customer.name)
+                                        .font(.headline)
 
-                                if let phone = customer.phone, !phone.isEmpty {
-                                    Text(phone)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-
-                            Spacer()
-
-                            if customer.totalDebt > 0 {
-                                VStack(alignment: .trailing, spacing: 4) {
-                                    Text("\(Int(customer.totalDebt)) CFA")
-                                        .font(.subheadline)
-                                        .bold()
-                                        .foregroundColor(.red)
-
-                                    Button(action: { customerToSettle = customer }) {
-                                        Text("Encaisser")
-                                            .font(.caption2)
-                                            .bold()
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(Color.green)
-                                            .foregroundColor(.white)
-                                            .cornerRadius(6)
+                                    if let phone = customer.phone, !phone.isEmpty {
+                                        Text(phone)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
                                     }
-                                    .buttonStyle(.plain)
                                 }
-                            } else {
-                                Text("À jour")
-                                    .font(.caption)
-                                    .foregroundColor(.green)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            customerToEdit = customer
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                if dataStore.settings.pinLockEnabled {
-                                    customerToDeleteWithPin = customer
-                                } else {
-                                    dataStore.deleteCustomer(customer)
-                                }
-                            } label: {
-                                Label("Supprimer", systemImage: "trash")
-                            }
 
-                            Button {
-                                customerToEdit = customer
-                            } label: {
-                                Label("Modifier", systemImage: "pencil")
+                                Spacer()
+
+                                if customer.totalDebt > 0 {
+                                    VStack(alignment: .trailing, spacing: 4) {
+                                        Text("\(Int(customer.totalDebt)) CFA")
+                                            .font(.subheadline)
+                                            .bold()
+                                            .foregroundColor(.red)
+
+                                        Button(action: { activeSheet = .settleDebt(customer) }) {
+                                            Text("Encaisser")
+                                                .font(.caption2)
+                                                .bold()
+                                                .padding(.horizontal, 8)
+                                                .padding(.vertical, 4)
+                                                .background(Color.green)
+                                                .foregroundColor(.white)
+                                                .cornerRadius(6)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                } else {
+                                    Text("À jour")
+                                        .font(.caption)
+                                        .foregroundColor(.green)
+                                }
                             }
-                            .tint(.blue)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                activeSheet = .editCustomer(customer)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    if dataStore.settings.pinLockEnabled {
+                                        activeSheet = .deleteCustomerPin(customer)
+                                    } else {
+                                        customerToDeleteDirectly = customer
+                                        showDeleteConfirmation = true
+                                    }
+                                } label: {
+                                    Label("Supprimer", systemImage: "trash")
+                                }
+
+                                Button {
+                                    activeSheet = .editCustomer(customer)
+                                } label: {
+                                    Label("Modifier", systemImage: "pencil")
+                                }
+                                .tint(.blue)
+                            }
                         }
                     }
+                    .listStyle(PlainListStyle())
                 }
-                .listStyle(PlainListStyle())
             }
             .navigationTitle("Clients & Dettes")
             .searchable(text: $viewModel.searchQuery, prompt: "Rechercher par nom ou numéro...")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showAddCustomerSheet = true }) {
+                    Button(action: { activeSheet = .addCustomer }) {
                         Image(systemName: "person.badge.plus")
                     }
                 }
             }
-            .sheet(isPresented: $showAddCustomerSheet) {
-                AddEditCustomerSheetView(dataStore: dataStore)
-            }
-            .sheet(item: $customerToEdit) { customer in
-                AddEditCustomerSheetView(dataStore: dataStore, existingCustomer: customer)
-            }
-            .sheet(item: $customerToSettle) { customer in
-                SettleDebtSheetView(customer: customer) { amount in
-                    dataStore.settleDebt(customerId: customer.id, amount: amount)
-                }
-            }
-            .sheet(item: $customerToDeleteWithPin) { customer in
-                PinAuthSheetView(
-                    title: "Autorisation Admin pour Supprimer un Client",
-                    correctPin: dataStore.settings.adminPin,
-                    onSuccess: {
-                        dataStore.deleteCustomer(customer)
+            .confirmationDialog("Supprimer ce client ?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+                Button("Supprimer définitivement", role: .destructive) {
+                    if let c = customerToDeleteDirectly {
+                        dataStore.deleteCustomer(c)
+                        customerToDeleteDirectly = nil
                     }
-                )
+                }
+                Button("Annuler", role: .cancel) {
+                    customerToDeleteDirectly = nil
+                }
+            } message: {
+                Text("Voulez-vous vraiment supprimer la fiche de \"\(customerToDeleteDirectly?.name ?? "")\" ?")
+            }
+            .sheet(item: $activeSheet) { sheetType in
+                switch sheetType {
+                case .addCustomer:
+                    AddEditCustomerSheetView(dataStore: dataStore)
+
+                case .editCustomer(let customer):
+                    AddEditCustomerSheetView(dataStore: dataStore, existingCustomer: customer)
+
+                case .settleDebt(let customer):
+                    SettleDebtSheetView(customer: customer) { amount in
+                        dataStore.settleDebt(customerId: customer.id, amount: amount)
+                    }
+
+                case .deleteCustomerPin(let customer):
+                    PinAuthSheetView(
+                        title: "Autorisation Admin pour Supprimer un Client",
+                        correctPin: dataStore.settings.adminPin,
+                        onSuccess: {
+                            activeSheet = nil
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                dataStore.deleteCustomer(customer)
+                            }
+                        }
+                    )
+                }
             }
         }
     }
