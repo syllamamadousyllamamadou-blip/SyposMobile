@@ -1,0 +1,30 @@
+{
+  "version": 2,
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/license-portal/index.html"
+    },
+    {
+      "source": "/license-portal",
+      "destination": "/license-portal/index.html"
+    },
+    {
+      "source": "/license-portal/(.*)",
+      "destination": "/license-portal/$1"
+    },
+    {
+      "source": "/web",
+      "destination": "/web/index.html"
+    },
+    {
+      "source": "/web/(.*)",
+      "destination": "/web/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/license-portal/index.html"
+    }
+  ]
+}
