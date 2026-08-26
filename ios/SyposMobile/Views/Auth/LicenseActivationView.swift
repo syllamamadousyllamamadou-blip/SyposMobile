@@ -4,73 +4,127 @@ public struct LicenseActivationView: View {
     @ObservedObject var dataStore: DataStore
     @State private var licenseKeyInput: String = ""
     @State private var errorMessage: String? = nil
+    @State private var showCopiedAlert: Bool = false
+
+    private var deviceId: String {
+        LicenseManager.getDeviceId()
+    }
 
     public var body: some View {
         ZStack {
             Color(.systemGroupedBackground).ignoresSafeArea()
 
-            VStack(spacing: 20) {
-                Spacer()
+            ScrollView {
+                VStack(spacing: 20) {
+                    Spacer().frame(height: 20)
 
-                Image(systemName: "checkmark.seal.fill")
-                    .font(.system(size: 70))
-                    .foregroundColor(.blue)
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 64))
+                        .foregroundColor(.blue)
 
-                Text("Installation SYPOS Mobile")
-                    .font(.title)
-                    .bold()
-
-                Text("Initialisation et activation de votre système de caisse professionnel pour iPhone")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Options d'activation rapide :")
-                        .font(.caption)
+                    Text("Activation SYPOS Mobile")
+                        .font(.title2)
                         .bold()
+
+                    Text("Protection Cryptographique Sécurisée de Caisse")
+                        .font(.subheadline)
                         .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
 
-                    HStack(spacing: 8) {
-                        Button("Essai 30j") { licenseKeyInput = "SYPOS-TRIAL-30D" }
-                            .buttonStyle(.bordered)
-                        Button("1 An") { licenseKeyInput = "SYPOS-1AN-2026" }
-                            .buttonStyle(.bordered)
-                        Button("Illimité") { licenseKeyInput = "SYPOS-PRO-VIP-2026" }
-                            .buttonStyle(.borderedProminent)
-                    }
+                    // Device ID Box
+                    VStack(spacing: 12) {
+                        HStack {
+                            Text("📱 ID UNIQUE DE CET APPAREIL")
+                                .font(.caption2)
+                                .bold()
+                                .foregroundColor(.blue)
+                            Spacer()
+                        }
 
-                    TextField("Saisissez votre clé de licence...", text: $licenseKeyInput)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .autocapitalization(.allCharacters)
-                        .disableAutocorrection(true)
-
-                    if let error = errorMessage {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.red)
+                        Text(deviceId)
+                            .font(.system(.body, design: .monospaced))
                             .bold()
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(Color(.systemGray6))
+                            .cornerRadius(8)
+
+                        HStack(spacing: 12) {
+                            Button(action: {
+                                UIPasteboard.general.string = deviceId
+                                showCopiedAlert = true
+                            }) {
+                                Label("Copier l'ID", systemImage: "doc.on.doc")
+                                    .font(.subheadline)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button(action: {
+                                let msg = "Bonjour SYPOS, voici mon ID Appareil pour activer ma licence :\n\n📱 *ID :* \(deviceId)\n🏪 *Boutique :* \(dataStore.settings.shopName)"
+                                if let encoded = msg.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                                   let url = URL(string: "https://api.whatsapp.com/send?text=\(encoded)") {
+                                    UIApplication.shared.open(url)
+                                }
+                            }) {
+                                Label("WhatsApp", systemImage: "message.fill")
+                                    .font(.subheadline)
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(Color.green)
+                                    .cornerRadius(8)
+                            }
+                        }
                     }
-                }
-                .padding()
-                .background(Color(.systemBackground))
-                .cornerRadius(16)
-                .padding(.horizontal, 20)
+                    .padding()
+                    .background(Color(.systemBackground))
+                    .cornerRadius(16)
+                    .padding(.horizontal, 20)
 
-                Button(action: activate) {
-                    Text("Activer & Démarrer")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background(Color.blue)
-                        .cornerRadius(12)
-                }
-                .padding(.horizontal, 20)
+                    // License Input Box
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("Saisie de la Clé Officielle :")
+                            .font(.caption)
+                            .bold()
+                            .foregroundColor(.secondary)
 
-                Spacer()
+                        TextField("Collez votre clé SYP1...", text: $licenseKeyInput)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .autocapitalization(.none)
+                            .disableAutocorrection(true)
+
+                        if let error = errorMessage {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .bold()
+                        }
+                    }
+                    .padding()
+                    .background(Color(.systemBackground))
+                    .cornerRadius(16)
+                    .padding(.horizontal, 20)
+
+                    Button(action: activate) {
+                        Text("Activer & Démarrer")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(Color.blue)
+                            .cornerRadius(12)
+                    }
+                    .padding(.horizontal, 20)
+
+                    Spacer().frame(height: 30)
+                }
             }
+        }
+        .alert(isPresented: $showCopiedAlert) {
+            Alert(title: Text("Copié !"), message: Text("ID Appareil copié dans le presse-papier."), dismissButton: .default(Text("OK")))
         }
     }
 
@@ -78,7 +132,7 @@ public struct LicenseActivationView: View {
         let status = LicenseManager.validateKey(licenseKeyInput)
         if status.isValid {
             dataStore.settings.isLicensed = true
-            dataStore.settings.licenseKey = licenseKeyInput
+            dataStore.settings.licenseKey = licenseKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
             dataStore.settings.licenseType = status.licenseType
             dataStore.settings.licenseExpiryDate = status.expiryDate
             dataStore.saveAll()

@@ -39,10 +39,11 @@ data class ShopSettings(
     val pinLockEnabled: Boolean = false,
     val bluetoothPrinterAddress: String? = null,
     val bluetoothPrinterName: String? = null,
-    val isLicensed: Boolean = true,
-    val licenseKey: String = "SYPOS-PRO-8899-7744",
-    val licenseType: String = "Licence Commerciale Illimitée",
-    val licenseExpiryDate: Long = 0L // 0L = Illimité
+    val isLicensed: Boolean = false,
+    val licenseKey: String = "",
+    val licenseType: String = "Non Activé",
+    val licenseExpiryDate: Long = 0L, // 0L = Illimité
+    val lastKnownTimestamp: Long = 0L
 )
 
 @Singleton
@@ -78,41 +79,55 @@ class ShopSettingsManager @Inject constructor(
             pinLockEnabled = prefs.getBoolean("pinLockEnabled", false),
             bluetoothPrinterAddress = prefs.getString("bluetoothPrinterAddress", null),
             bluetoothPrinterName = prefs.getString("bluetoothPrinterName", null),
-            isLicensed = prefs.getBoolean("isLicensed", true),
-            licenseKey = prefs.getString("licenseKey", "SYPOS-PRO-8899-7744") ?: "SYPOS-PRO-8899-7744",
-            licenseType = prefs.getString("licenseType", "Licence Commerciale Illimitée") ?: "Licence Commerciale Illimitée",
-            licenseExpiryDate = prefs.getLong("licenseExpiryDate", 0L)
+            isLicensed = prefs.getBoolean("isLicensed", false),
+            licenseKey = prefs.getString("licenseKey", "") ?: "",
+            licenseType = prefs.getString("licenseType", "Non Activé") ?: "Non Activé",
+            licenseExpiryDate = prefs.getLong("licenseExpiryDate", 0L),
+            lastKnownTimestamp = prefs.getLong("lastKnownTimestamp", 0L)
         )
     }
 
     fun updateSettings(newSettings: ShopSettings) {
+        val currentNow = System.currentTimeMillis()
+        val updatedTimestamp = if (currentNow > newSettings.lastKnownTimestamp) currentNow else newSettings.lastKnownTimestamp
+        val settingsToSave = newSettings.copy(lastKnownTimestamp = updatedTimestamp)
+
         prefs.edit().apply {
-            putString("shopName", newSettings.shopName)
-            putString("shopAddress", newSettings.shopAddress)
-            putString("shopPhone", newSettings.shopPhone)
-            putString("receiptFooter", newSettings.receiptFooter)
-            putString("currency", newSettings.currency)
-            putString("businessMode", newSettings.businessMode.name)
-            putString("currentUserRole", newSettings.currentUserRole.name)
-            putString("sellerName", newSettings.sellerName)
-            putBoolean("showPublisherSignature", newSettings.showPublisherSignature)
-            putString("publisherSignatureText", newSettings.publisherSignatureText)
-            putBoolean("taxEnabled", newSettings.taxEnabled)
-            putFloat("taxRatePercent", newSettings.taxRatePercent.toFloat())
-            putBoolean("allowNegativeStock", newSettings.allowNegativeStock)
-            putBoolean("autoPrintReceipt", newSettings.autoPrintReceipt)
-            putString("adminPin", newSettings.adminPin)
-            putString("cashierPin", newSettings.cashierPin)
-            putBoolean("pinLockEnabled", newSettings.pinLockEnabled)
-            putString("bluetoothPrinterAddress", newSettings.bluetoothPrinterAddress)
-            putString("bluetoothPrinterName", newSettings.bluetoothPrinterName)
-            putBoolean("isLicensed", newSettings.isLicensed)
-            putString("licenseKey", newSettings.licenseKey)
-            putString("licenseType", newSettings.licenseType)
-            putLong("licenseExpiryDate", newSettings.licenseExpiryDate)
+            putString("shopName", settingsToSave.shopName)
+            putString("shopAddress", settingsToSave.shopAddress)
+            putString("shopPhone", settingsToSave.shopPhone)
+            putString("receiptFooter", settingsToSave.receiptFooter)
+            putString("currency", settingsToSave.currency)
+            putString("businessMode", settingsToSave.businessMode.name)
+            putString("currentUserRole", settingsToSave.currentUserRole.name)
+            putString("sellerName", settingsToSave.sellerName)
+            putBoolean("showPublisherSignature", settingsToSave.showPublisherSignature)
+            putString("publisherSignatureText", settingsToSave.publisherSignatureText)
+            putBoolean("taxEnabled", settingsToSave.taxEnabled)
+            putFloat("taxRatePercent", settingsToSave.taxRatePercent.toFloat())
+            putBoolean("allowNegativeStock", settingsToSave.allowNegativeStock)
+            putBoolean("autoPrintReceipt", settingsToSave.autoPrintReceipt)
+            putString("adminPin", settingsToSave.adminPin)
+            putString("cashierPin", settingsToSave.cashierPin)
+            putBoolean("pinLockEnabled", settingsToSave.pinLockEnabled)
+            putString("bluetoothPrinterAddress", settingsToSave.bluetoothPrinterAddress)
+            putString("bluetoothPrinterName", settingsToSave.bluetoothPrinterName)
+            putBoolean("isLicensed", settingsToSave.isLicensed)
+            putString("licenseKey", settingsToSave.licenseKey)
+            putString("licenseType", settingsToSave.licenseType)
+            putLong("licenseExpiryDate", settingsToSave.licenseExpiryDate)
+            putLong("lastKnownTimestamp", updatedTimestamp)
             apply()
         }
-        _settings.value = newSettings
+        _settings.value = settingsToSave
+    }
+
+    fun updateLastKnownTimestamp() {
+        val now = System.currentTimeMillis()
+        if (now > _settings.value.lastKnownTimestamp) {
+            prefs.edit().putLong("lastKnownTimestamp", now).apply()
+            _settings.value = _settings.value.copy(lastKnownTimestamp = now)
+        }
     }
 
     fun setUserRole(role: UserRole) {

@@ -59,6 +59,27 @@ fun SyposNavigation(
     var pendingAdminRoute by remember { mutableStateOf<String?>(null) }
     var showAdminPinDialog by remember { mutableStateOf(false) }
 
+    LaunchedEffect(Unit) {
+        settingsViewModel.updateLastKnownTimestamp()
+    }
+
+    val isClockFraud = com.sypos.mobile.util.LicenseManager.isClockTampered(settings.lastKnownTimestamp)
+    if (isClockFraud) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Anomalie Horloge Système", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
+            text = {
+                Text("L'heure de votre téléphone semble avoir été reculée. Pour des raisons de sécurité de vos rapports et de votre licence, veuillez réactiver la date et l'heure automatiques sur votre téléphone.")
+            },
+            confirmButton = {
+                Button(onClick = { settingsViewModel.updateLastKnownTimestamp() }) {
+                    Text("J'ai corrigé l'heure")
+                }
+            }
+        )
+        return
+    }
+
     val needsLicenseActivation = !settings.isLicensed || com.sypos.mobile.util.LicenseManager.isLicenseExpired(settings.licenseExpiryDate)
 
     // If application needs initial license activation

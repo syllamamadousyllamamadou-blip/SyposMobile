@@ -79,6 +79,10 @@ class SettingsViewModel @Inject constructor(
         updateSettings(updated)
     }
 
+    fun updateLastKnownTimestamp() {
+        shopSettingsManager.updateLastKnownTimestamp()
+    }
+
     fun getPairedPrinters(context: Context): List<BluetoothPrinterDevice> {
         return BluetoothPrinterHelper.getPairedPrinters(context)
     }

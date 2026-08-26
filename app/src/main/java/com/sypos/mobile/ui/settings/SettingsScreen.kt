@@ -506,6 +506,71 @@ fun SettingsScreen(
                 }
             }
 
+            // Section Licence SYPOS Mobile
+            var showLicenseDialog by remember { mutableStateOf(false) }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Text(
+                            text = "Licence SYPOS Mobile",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = savedSettings.licenseType,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            if (savedSettings.licenseExpiryDate > 0L) {
+                                val exp = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.FRANCE).format(java.util.Date(savedSettings.licenseExpiryDate))
+                                Text("Expire le : $exp", style = MaterialTheme.typography.labelSmall, color = androidx.compose.ui.graphics.Color(0xFFC62828))
+                            } else {
+                                Text("Licence Illimitée (À Vie)", style = MaterialTheme.typography.labelSmall, color = androidx.compose.ui.graphics.Color(0xFF2E7D32))
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = { showLicenseDialog = true },
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Gérer")
+                        }
+                    }
+                }
+            }
+
+            if (showLicenseDialog) {
+                com.sypos.mobile.ui.auth.LicenseDialog(
+                    settings = savedSettings,
+                    isInitialSetup = false,
+                    onSaveLicense = { key, type, expiry ->
+                        viewModel.saveLicense(key, type, expiry)
+                    },
+                    onDismiss = { showLicenseDialog = false }
+                )
+            }
+
             // Save Button
             Button(
                 onClick = {
