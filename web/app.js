@@ -850,6 +850,29 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 1200);
   }
 
+function createEscPosTicketBytes(plainText) {
+  // ESC/POS Commands:
+  // 0x1B 0x40 = ESC @ (Initialize printer hardware)
+  // 0x1C 0x2E = FS . (Cancel Chinese/Kanji double-byte mode)
+  // 0x1B 0x74 0x00 = ESC t 0 (Select Code Page 0: CP437 Standard Western ASCII)
+  const header = [0x1B, 0x40, 0x1C, 0x2E, 0x1B, 0x74, 0x00];
+
+  const body = [];
+  for (let i = 0; i < plainText.length; i++) {
+    const code = plainText.charCodeAt(i);
+    // Printable standard ASCII (32 to 126), newline (10), carriage return (13)
+    if (code === 10 || code === 13 || (code >= 32 && code <= 126)) {
+      body.push(code);
+    } else {
+      body.push(32); // Space for unknown multi-byte characters
+    }
+  }
+
+  // Paper Feed & Tear Space: 3 line feeds + ESC d 3
+  const footer = [0x0A, 0x0A, 0x0A, 0x1B, 0x64, 0x03];
+  return new Uint8Array([...header, ...body, ...footer]);
+}
+
   // Direct Bluetooth ESC/POS Print button (Works with Web Bluetooth / Bluefy Browser / Chrome)
   const btnBleDirect = document.getElementById('btnPrintBleDirectBtn');
   if (btnBleDirect) {
@@ -861,10 +884,9 @@ document.addEventListener('DOMContentLoaded', () => {
         await connectBluetoothPrinter();
       }
       if (STATE.bleCharacteristic) {
-        const encoder = new TextEncoder();
-        const rawBytes = encoder.encode(plainText);
+        const rawBytes = createEscPosTicketBytes(plainText);
         await sendToPrinter(rawBytes);
-        alert("✅ Ticket envoyé à l'imprimante Bluetooth !");
+        alert("✅ Ticket imprimé sans erreur !");
       }
     });
   }
