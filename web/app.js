@@ -835,7 +835,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const payload = encodeURIComponent(JSON.stringify(entries));
-    const thermerUrl = `thermer://print?data=${payload}`;
+    // Thermer expects: thermer://<ENCODED_JSON>
+    const thermerUrl = `thermer://${payload}`;
 
     // Try to open Thermer
     window.location.href = thermerUrl;
@@ -936,7 +937,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const payload = encodeURIComponent(JSON.stringify(labelEntries));
-      window.location.href = `thermer://print?data=${payload}`;
+      window.location.href = `thermer://${payload}`;
     });
   }
 
