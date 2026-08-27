@@ -207,9 +207,9 @@
       </div>
 
       <div class="card-group">
-        <h3 style="font-size: 16px; margin-bottom: 8px;">🖨️ Imprimante Thermique (iPhone / iOS)</h3>
+        <h3 style="font-size: 16px; margin-bottom: 8px;">🖨️ Imprimante Thermique Bluetooth</h3>
         <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
-          Sur iPhone/Safari, l'impression Bluetooth s'effectue via l'application gratuite <strong>Thermer</strong> avec formatage calibré anti-déformation.
+          Impression directe ultra-rapide ESC/POS avec reconnexion automatique (Compatible Bluefy sur iOS et Chrome sur Android).
         </p>
 
         <div class="form-group">
@@ -221,11 +221,8 @@
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
-          <a href="https://apps.apple.com/app/bluetooth-thermal-printer-app/id1552684814" target="_blank" class="btn-main btn-secondary" style="margin:0; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px;">
-            📥 Télécharger Thermer sur l'App Store
-          </a>
-          <button class="btn-main" id="btnTestThermerPrint" style="margin:0; background: #007AFF;">
-            🧪 Tester l'impression Thermer (Ticket Test Calibré)
+          <button class="btn-main" id="btnTestBlePrint" style="margin:0; background: var(--primary);">
+            🧪 Tester l'impression Bluetooth (Ticket Test)
           </button>
         </div>
       </div>
@@ -397,12 +394,11 @@
       </div>
       <div class="sheet-content">
         <div class="receipt-paper" id="receiptPaperContent"></div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px;">
-          <button class="btn-main" id="btnPrintBleDirectBtn" style="margin:0; background: var(--primary);">🖨️ Imprimer BLE Direct</button>
-          <button class="btn-main" id="btnShareWhatsAppBtn" style="margin:0; background: #25D366;">💬 WhatsApp</button>
-        </div>
+        <button class="btn-main" id="btnPrintBleDirectBtn" style="margin-top: 14px; background: var(--primary); font-size: 15px; height: 48px;">
+          🖨️ Imprimer le Reçu (Bluetooth Direct)
+        </button>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px;">
-          <button class="btn-main btn-secondary" id="btnSharePrinterAppBtn" style="margin:0;">📤 Vers App / Thermer</button>
+          <button class="btn-main" id="btnShareWhatsAppBtn" style="margin:0; background: #25D366;">💬 WhatsApp</button>
           <button class="btn-main btn-secondary" id="btnPrintReceiptBtn" style="margin:0;">📄 AirPrint / PDF</button>
         </div>
       </div>

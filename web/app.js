@@ -280,12 +280,25 @@ function renderCartModal() {
 }
 
 // ==========================================
-// 5. BLUETOOTH THERMAL PRINTER DRIVER (Web Bluetooth ESC/POS)
+// 5. BLUETOOTH THERMAL PRINTER DRIVER (Web Bluetooth ESC/POS with Auto-Reconnect)
 // ==========================================
+function updateBleHeaderStatus(connected, deviceName = '') {
+  const btn = document.getElementById('btnHeaderBle');
+  if (btn) {
+    if (connected) {
+      btn.style.color = 'var(--primary)';
+      btn.title = `Imprimante connectée : ${deviceName}`;
+    } else {
+      btn.style.color = '';
+      btn.title = "Connecter une imprimante Bluetooth";
+    }
+  }
+}
+
 async function connectBluetoothPrinter() {
   if (!navigator.bluetooth) {
     alert("⚠️ Web Bluetooth n'est pas supporté directement par Safari classique. Sur iOS, utilisez l'application Bluefy ou connectez une imprimante Wi-Fi / AirPrint !");
-    return;
+    return false;
   }
   try {
     const device = await navigator.bluetooth.requestDevice({
@@ -296,6 +309,12 @@ async function connectBluetoothPrinter() {
         '49535343-fe7d-4ae5-8fa9-9fafd205e455'
       ]
     });
+    
+    device.addEventListener('gattserverdisconnected', () => {
+      console.log("Bluetooth printer disconnected (idle/background)");
+      updateBleHeaderStatus(false);
+    });
+
     const server = await device.gatt.connect();
     const services = await server.getPrimaryServices();
     for (const s of services) {
@@ -304,31 +323,64 @@ async function connectBluetoothPrinter() {
         if (c.properties.write || c.properties.writeWithoutResponse) {
           STATE.bleCharacteristic = c;
           STATE.bleDevice = device;
+          updateBleHeaderStatus(true, device.name);
           alert(`✅ Imprimante Bluetooth connectée : ${device.name || 'Imprimante ESC/POS'}`);
-          return;
+          return true;
         }
       }
     }
+    return false;
   } catch (err) {
-    console.error(err);
+    console.error("Bluetooth connection error:", err);
+    return false;
   }
 }
 
+async function ensurePrinterConnected() {
+  if (STATE.bleDevice && STATE.bleDevice.gatt.connected && STATE.bleCharacteristic) {
+    return true;
+  }
+  if (STATE.bleDevice && !STATE.bleDevice.gatt.connected) {
+    try {
+      console.log("Tentative de reconnexion automatique à l'imprimante...");
+      const server = await STATE.bleDevice.gatt.connect();
+      const services = await server.getPrimaryServices();
+      for (const s of services) {
+        const chars = await s.getCharacteristics();
+        for (const c of chars) {
+          if (c.properties.write || c.properties.writeWithoutResponse) {
+            STATE.bleCharacteristic = c;
+            updateBleHeaderStatus(true, STATE.bleDevice.name);
+            return true;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Reconnexion auto échouée, ouverture du sélecteur", e);
+    }
+  }
+  return await connectBluetoothPrinter();
+}
+
 async function sendToPrinter(rawBytes) {
-  if (STATE.bleCharacteristic) {
+  const isConnected = await ensurePrinterConnected();
+  if (isConnected && STATE.bleCharacteristic) {
     try {
       const chunkSize = 100;
       for (let i = 0; i < rawBytes.length; i += chunkSize) {
         const chunk = rawBytes.slice(i, i + chunkSize);
         await STATE.bleCharacteristic.writeValue(chunk);
       }
+      return true;
     } catch (e) {
-      console.error(e);
+      console.error("Erreur d'envoi Bluetooth:", e);
       window.print();
+      return false;
     }
   } else {
     // Fallback to iOS System Print
     window.print();
+    return false;
   }
 }
 
@@ -786,70 +838,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('modalReceipt').classList.add('active');
   });
 
-  // Print via Thermer BLE App (iOS Deep Link & Fallback)
-  function sendToThermerApp(ticket) {
-    if (!ticket) return;
-    const plainText = generateReceiptPlainText(ticket);
-
-    // 1. Copy to clipboard as quick fallback
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(plainText).catch(() => {});
-    }
-
-    // 2. Build structured PrintEntry JSON for Thermer
-    const entries = [
-      { type: "text", text: (STATE.settings.shopName || "SYPOS MOBILE").toUpperCase(), alignment: "center", bold: true, size: 2 },
-      { type: "text", text: STATE.settings.shopAddress || "", alignment: "center" },
-      { type: "text", text: "Tel: " + (STATE.settings.shopPhone || ""), alignment: "center" },
-      { type: "line" },
-      { type: "text", text: "Ticket: " + ticket.number, alignment: "left", bold: true },
-      { type: "text", text: "Date: " + new Date(ticket.date).toLocaleString('fr-FR'), alignment: "left" },
-      { type: "text", text: "Vendeur: " + (STATE.settings.sellerName || "Caisse"), alignment: "left" },
-      { type: "line" }
-    ];
-
-    ticket.items.forEach(it => {
-      const lineLeft = `${it.productName} x${it.qty}`;
-      const lineRight = `${(it.price * it.qty).toLocaleString('fr-FR')} CFA`;
-      entries.push({
-        type: "text",
-        text: `${lineLeft.padEnd(20, ' ')} ${lineRight}`,
-        alignment: "left"
-      });
-    });
-
-    entries.push(
-      { type: "line" },
-      { type: "text", text: `TOTAL: ${ticket.totalAmount.toLocaleString('fr-FR')} CFA`, alignment: "right", bold: true, size: 2 },
-      { type: "text", text: `Reglement: ${(ticket.paymentMethod || 'ESPECES').toUpperCase()}`, alignment: "left" },
-      { type: "line" },
-      { type: "text", text: STATE.settings.receiptFooter || "Merci de votre visite !", alignment: "center" }
-    );
-
-    if (STATE.settings.showPublisherSignature) {
-      entries.push({
-        type: "text",
-        text: STATE.settings.publisherSignatureText || "Sypos Mobile - Caisse Intelligente",
-        alignment: "center"
-      });
-    }
-
-    // Thermer JSON structure expects { entries: [...] } object
-    const payloadObj = { entries: entries };
-    const payload = encodeURIComponent(JSON.stringify(payloadObj));
-    const thermerUrl = `thermer://${payload}`;
-
-    // Try to open Thermer
-    window.location.href = thermerUrl;
-
-    // Provide user feedback
-    setTimeout(() => {
-      if (document.hidden) return; // App opened
-      // If still on screen, show friendly prompt
-      console.log("Deep link triggered for Thermer");
-    }, 1200);
-  }
-
 function createEscPosTicketBytes(plainText) {
   // ESC/POS Commands:
   // 0x1B 0x40 = ESC @ (Initialize printer hardware)
@@ -880,38 +868,10 @@ function createEscPosTicketBytes(plainText) {
       if (STATE.tickets.length === 0) return;
       const t = STATE.tickets[0];
       const plainText = generateReceiptPlainText(t);
-      if (!STATE.bleCharacteristic) {
-        await connectBluetoothPrinter();
-      }
-      if (STATE.bleCharacteristic) {
-        const rawBytes = createEscPosTicketBytes(plainText);
-        await sendToPrinter(rawBytes);
-        alert("✅ Ticket imprimé sans erreur !");
-      }
-    });
-  }
-
-  // Share Sheet / Vers App Thermer / RawBT
-  const btnShareApp = document.getElementById('btnSharePrinterAppBtn');
-  if (btnShareApp) {
-    btnShareApp.addEventListener('click', () => {
-      if (STATE.tickets.length === 0) return;
-      const t = STATE.tickets[0];
-      const plainText = generateReceiptPlainText(t);
-      
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(plainText).catch(() => {});
-      }
-
-      if (navigator.share) {
-        navigator.share({
-          title: 'Ticket ' + t.number,
-          text: plainText
-        }).catch(() => {
-          window.location.href = "thermer://";
-        });
-      } else {
-        window.location.href = "thermer://";
+      const rawBytes = createEscPosTicketBytes(plainText);
+      const ok = await sendToPrinter(rawBytes);
+      if (ok) {
+        alert("✅ Ticket imprimé avec succès !");
       }
     });
   }
@@ -961,26 +921,50 @@ function createEscPosTicketBytes(plainText) {
     alert("✅ Paramètres enregistrés avec succès !");
   });
 
-  // Print Label in Tools Tab
+  // Test Bluetooth Print Button in Settings
+  const btnTestBle = document.getElementById('btnTestBlePrint');
+  if (btnTestBle) {
+    btnTestBle.addEventListener('click', async () => {
+      const dummyTicket = {
+        number: 'TEST-' + Math.floor(1000 + Math.random() * 9000),
+        date: new Date().toISOString(),
+        items: [
+          { productName: 'Article Test 1', qty: 1, price: 1500 },
+          { productName: 'Article Test 2', qty: 2, price: 2500 }
+        ],
+        totalAmount: 6500,
+        paymentMethod: 'cash'
+      };
+      const plainText = generateReceiptPlainText(dummyTicket);
+      const rawBytes = createEscPosTicketBytes(plainText);
+      const ok = await sendToPrinter(rawBytes);
+      if (ok) alert("✅ Ticket de test imprimé avec succès !");
+    });
+  }
+
+  // Print Label in Tools Tab (Direct Bluetooth ESC/POS)
   const btnPrintLabel = document.getElementById('btnPrintLabelNow');
   if (btnPrintLabel) {
-    btnPrintLabel.addEventListener('click', () => {
+    btnPrintLabel.addEventListener('click', async () => {
       const name = document.getElementById('toolNameInput').value || 'Article';
       const price = document.getElementById('toolPriceInput').value || '0';
       const barcode = document.getElementById('toolBarcodeInput').value || '';
-      
-      const labelEntries = [
-        { type: "text", text: (STATE.settings.shopName || "SYPOS").toUpperCase(), alignment: "center", bold: true },
-        { type: "text", text: name, alignment: "center", bold: true, size: 2 },
-        { type: "text", text: price + " CFA", alignment: "center", bold: true, size: 2 },
-        { type: "line" }
-      ];
-      if (barcode) {
-        labelEntries.push({ type: "text", text: "Code: " + barcode, alignment: "center" });
-      }
+      const width = (STATE.settings.printerWidth === "80") ? 42 : 32;
 
-      const payload = encodeURIComponent(JSON.stringify(labelEntries));
-      window.location.href = `thermer://${payload}`;
+      let labelText = [
+        '='.repeat(width),
+        centerText(removeAccents(STATE.settings.shopName || "SYPOS").toUpperCase(), width),
+        '-'.repeat(width),
+        centerText(removeAccents(name), width),
+        centerText(`PRIX : ${price} CFA`, width),
+        barcode ? centerText(`CODE : ${barcode}`, width) : '',
+        '='.repeat(width),
+        '\n\n'
+      ].filter(Boolean).join('\n');
+
+      const rawBytes = createEscPosTicketBytes(labelText);
+      const ok = await sendToPrinter(rawBytes);
+      if (ok) alert("✅ Étiquette imprimée avec succès !");
     });
   }
 
