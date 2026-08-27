@@ -51,7 +51,12 @@ function loadFromStorage() {
       const parsed = JSON.parse(s);
       Object.assign(STATE.settings, parsed.settings || {});
       STATE.products = parsed.products || [];
-      STATE.categories = parsed.categories || [];
+      STATE.categories = (parsed.categories && parsed.categories.length > 0) ? parsed.categories : [
+        { id: "1", name: "Alimentation", color: "#10B981" },
+        { id: "2", name: "Boissons", color: "#3B82F6" },
+        { id: "3", name: "Hygiène", color: "#EC4899" },
+        { id: "4", name: "Divers", color: "#8B5CF6" }
+      ];
       STATE.tickets = parsed.tickets || [];
       STATE.customers = parsed.customers || [];
       STATE.expenses = parsed.expenses || [];
@@ -61,29 +66,19 @@ function loadFromStorage() {
       console.error(e);
     }
   } else {
-    // Seed initial dummy data
+    // Clean initial state (no dummy products or tickets)
     STATE.categories = [
       { id: "1", name: "Alimentation", color: "#10B981" },
       { id: "2", name: "Boissons", color: "#3B82F6" },
       { id: "3", name: "Hygiène", color: "#EC4899" },
       { id: "4", name: "Divers", color: "#8B5CF6" }
     ];
-    STATE.products = [
-      { id: "p1", name: "Riz Parfumé 5kg", salePrice: 4500, costPrice: 3800, stock: 25, barcode: "61811001", catId: "1" },
-      { id: "p2", name: "Huile Dinor 1L", salePrice: 1300, costPrice: 1100, stock: 40, barcode: "61811002", catId: "1" },
-      { id: "p3", name: "Coca Cola 33cl", salePrice: 500, costPrice: 350, stock: 60, barcode: "61811003", catId: "2" },
-      { id: "p4", name: "Eau Awa 1.5L", salePrice: 400, costPrice: 280, stock: 80, barcode: "61811004", catId: "2" },
-      { id: "p5", name: "Savon Lux 150g", salePrice: 500, costPrice: 350, stock: 50, barcode: "61811005", catId: "3" },
-      { id: "p6", name: "Lait Bonnet Rouge", salePrice: 700, costPrice: 550, stock: 35, barcode: "61811006", catId: "1" }
-    ];
-    STATE.customers = [
-      { id: "c1", name: "Client Comptant", phone: "", debt: 0 },
-      { id: "c2", name: "M. Kouamé", phone: "0708091011", debt: 2500 },
-      { id: "c3", name: "Mme Traoré", phone: "0506070809", debt: 0 }
-    ];
-    STATE.promoCodes = [
-      { id: "pr1", code: "SOLDES10", discountPercent: 10, isActive: true }
-    ];
+    STATE.products = [];
+    STATE.customers = [];
+    STATE.tickets = [];
+    STATE.expenses = [];
+    STATE.heldSales = [];
+    STATE.promoCodes = [];
     saveToStorage();
   }
 }
@@ -628,18 +623,21 @@ function generateZReportHtml(zData) {
 }
 
 function exportToCsv(filename, headers, rows) {
-  let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
+  let csvContent = "\uFEFF"; // UTF-8 BOM for Excel / Numbers
   csvContent += headers.map(h => `"${h}"`).join(";") + "\r\n";
   rows.forEach(r => {
     csvContent += r.map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(";") + "\r\n";
   });
-  const encodedUri = encodeURI(csvContent);
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.setAttribute("href", encodedUri);
+  link.setAttribute("href", url);
   link.setAttribute("download", filename);
+  link.style.display = 'none';
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 function createEscPosBarcodeLabelBytes(shopName, prodName, price, barcode) {
@@ -1034,8 +1032,8 @@ function createEscPosTicketBytes(plainText) {
     }
   }
 
-  // Paper Feed & Tear Space: 3 line feeds + ESC d 3
-  const footer = [0x0A, 0x0A, 0x0A, 0x1B, 0x64, 0x03];
+  // Paper Feed & Tear Space: Clean short advance (1 feed line only)
+  const footer = [0x0A, 0x1B, 0x64, 0x01];
   return new Uint8Array([...header, ...body, ...footer]);
 }
 
@@ -1063,8 +1061,8 @@ function createEscPosTicketBytes(plainText) {
   document.getElementById('btnShareWhatsAppBtn').addEventListener('click', () => {
     if (STATE.tickets.length === 0) return;
     const t = STATE.tickets[0];
-    let text = `*${STATE.settings.shopName}*\nTicket N°: ${t.number}\nTotal: ${t.totalAmount} CFA\nMerci de votre confiance !`;
-    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+    let text = `*${STATE.settings.shopName}*\nTicket N°: ${t.number}\nDate: ${new Date(t.date).toLocaleDateString('fr-FR')}\nTotal: ${t.totalAmount} CFA\nMerci de votre confiance !`;
+    window.location.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
   });
 
   // Admin PIN submission
@@ -1198,6 +1196,28 @@ function createEscPosTicketBytes(plainText) {
     saveToStorage();
     alert("✅ Paramètres enregistrés avec succès !");
   });
+
+  // Reset database button
+  const btnReset = document.getElementById('btnResetDatabase');
+  if (btnReset) {
+    btnReset.addEventListener('click', () => {
+      requestAdminPin("Vider toutes les données (Remise à zéro)", () => {
+        STATE.products = [];
+        STATE.tickets = [];
+        STATE.expenses = [];
+        STATE.heldSales = [];
+        STATE.customers = [];
+        STATE.cart = [];
+        saveToStorage();
+        renderPos();
+        renderProducts();
+        renderHistory();
+        renderReports();
+        renderCustomers();
+        alert("✅ Données remises à zéro ! Vous pouvez maintenant ajouter vos vrais articles.");
+      });
+    });
+  }
 
   // ==========================================
   // HELD SALES (PAUSE & RESUME)
@@ -1647,6 +1667,154 @@ function createEscPosTicketBytes(plainText) {
   }
 
   // ==========================================
+  // DELIVERY NOTE (BORDEREAU DE LIVRAISON)
+  // ==========================================
+  function generateDeliveryNotePlainText(deliv) {
+    const width = (STATE.settings.printerWidth === "80") ? 42 : 32;
+    const sep = '='.repeat(width);
+    const dash = '-'.repeat(width);
+
+    let out = [];
+    out.push(sep);
+    out.push(centerText("BORDEREAU DE LIVRAISON", width));
+    out.push(centerText(removeAccents(STATE.settings.shopName || "SYPOS").toUpperCase(), width));
+    if (STATE.settings.shopPhone) {
+      out.push(centerText("Tel: " + removeAccents(STATE.settings.shopPhone), width));
+    }
+    out.push(sep);
+    out.push("DESTINATAIRE :");
+    out.push("Nom : " + removeAccents(deliv.recipientName));
+    out.push("Tel : " + removeAccents(deliv.recipientPhone));
+    out.push("Lieu: " + removeAccents(deliv.deliveryAddress));
+    if (deliv.note) {
+      out.push("Note: " + removeAccents(deliv.note));
+    }
+    out.push(dash);
+    out.push("COLIS / CONTENU :");
+    out.push(removeAccents(deliv.itemsSummary));
+    out.push(dash);
+    out.push(padLine("Prix Articles :", deliv.amountArticles.toLocaleString('fr-FR') + ' F', width));
+    if (deliv.fee > 0) {
+      out.push(padLine("Frais Livraison :", deliv.fee.toLocaleString('fr-FR') + ' F', width));
+    }
+    out.push(sep);
+    const totalCollect = deliv.amountArticles + deliv.fee;
+    out.push(padLine("TOTAL A ENCAISSER :", totalCollect.toLocaleString('fr-FR') + ' CFA', width));
+    out.push(sep);
+    out.push(centerText("Signature Client a la reception :", width));
+    out.push('\n');
+    out.push(centerText("................................", width));
+    out.push('\n');
+    return out.join('\n');
+  }
+
+  const btnOpenDeliv = document.getElementById('btnOpenDeliveryModal');
+  if (btnOpenDeliv) {
+    btnOpenDeliv.addEventListener('click', () => {
+      document.getElementById('delivRecipientName').value = '';
+      document.getElementById('delivRecipientPhone').value = '';
+      document.getElementById('delivAddress').value = '';
+      document.getElementById('delivItemsSummary').value = '';
+      document.getElementById('delivAmountArticles').value = '';
+      document.getElementById('delivFee').value = '';
+      document.getElementById('delivNote').value = '';
+      document.getElementById('modalDelivery').classList.add('active');
+    });
+  }
+
+  const btnPrintDelivBle = document.getElementById('btnPrintDeliveryBleBtn');
+  if (btnPrintDelivBle) {
+    btnPrintDelivBle.addEventListener('click', async () => {
+      const recipientName = document.getElementById('delivRecipientName').value.trim();
+      const recipientPhone = document.getElementById('delivRecipientPhone').value.trim();
+      const deliveryAddress = document.getElementById('delivAddress').value.trim();
+      const itemsSummary = document.getElementById('delivItemsSummary').value.trim();
+      const amountArticles = parseFloat(document.getElementById('delivAmountArticles').value) || 0;
+      const fee = parseFloat(document.getElementById('delivFee').value) || 0;
+      const note = document.getElementById('delivNote').value.trim();
+
+      if (!recipientName || !recipientPhone || !deliveryAddress || !itemsSummary) {
+        alert("⚠️ Veuillez remplir le nom, téléphone, adresse et contenu du colis !");
+        return;
+      }
+
+      const deliv = { recipientName, recipientPhone, deliveryAddress, itemsSummary, amountArticles, fee, note };
+      const plainText = generateDeliveryNotePlainText(deliv);
+      const rawBytes = createEscPosTicketBytes(plainText);
+      const ok = await sendToPrinter(rawBytes);
+      if (ok) alert("✅ Bordereau de livraison imprimé avec succès !");
+    });
+  }
+
+  const btnShareDelivWA = document.getElementById('btnShareDeliveryWhatsAppBtn');
+  if (btnShareDelivWA) {
+    btnShareDelivWA.addEventListener('click', () => {
+      const recipientName = document.getElementById('delivRecipientName').value.trim();
+      const recipientPhone = document.getElementById('delivRecipientPhone').value.trim();
+      const deliveryAddress = document.getElementById('delivAddress').value.trim();
+      const itemsSummary = document.getElementById('delivItemsSummary').value.trim();
+      const amountArticles = parseFloat(document.getElementById('delivAmountArticles').value) || 0;
+      const fee = parseFloat(document.getElementById('delivFee').value) || 0;
+      const note = document.getElementById('delivNote').value.trim();
+
+      const total = amountArticles + fee;
+      let text = `📦 *BORDEREAU DE LIVRAISON — ${STATE.settings.shopName}*\n\n` +
+        `👤 *Client :* ${recipientName}\n` +
+        `📞 *Tél :* ${recipientPhone}\n` +
+        `📍 *Lieu :* ${deliveryAddress}\n` +
+        `📝 *Colis :* ${itemsSummary}\n` +
+        `💰 *Total à encaisser :* ${total.toLocaleString('fr-FR')} CFA\n` +
+        (note ? `ℹ️ *Note :* ${note}\n` : '') +
+        `\nMerci de confirmer la livraison !`;
+
+      window.location.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    });
+  }
+
+  // ==========================================
+  // STOCK ADJUSTMENT MODAL CONTROLS
+  // ==========================================
+  const btnMinus = document.getElementById('btnStockMinus');
+  if (btnMinus) {
+    btnMinus.addEventListener('click', () => {
+      const inp = document.getElementById('prodInputStock');
+      inp.value = Math.max(0, (parseInt(inp.value, 10) || 0) - 1);
+    });
+  }
+
+  const btnPlus = document.getElementById('btnStockPlus');
+  if (btnPlus) {
+    btnPlus.addEventListener('click', () => {
+      const inp = document.getElementById('prodInputStock');
+      inp.value = (parseInt(inp.value, 10) || 0) + 1;
+    });
+  }
+
+  document.querySelectorAll('.btn-quick-stock').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const val = parseInt(btn.dataset.val, 10) || 0;
+      const inp = document.getElementById('prodInputStock');
+      inp.value = (parseInt(inp.value, 10) || 0) + val;
+    });
+  });
+
+  // History period filter buttons
+  document.querySelectorAll('.history-filter').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.history-filter').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentHistoryPeriod = btn.dataset.period || 'today';
+      renderHistory();
+    });
+  });
+
+  // Search input in Catalogue
+  const prodSearch = document.getElementById('prodSearchInput');
+  if (prodSearch) {
+    prodSearch.addEventListener('input', () => renderProducts());
+  }
+
+  // ==========================================
   // PRINT THERMAL BARCODE LABEL
   // ==========================================
   const btnPrintLabel = document.getElementById('btnPrintLabelNow');
@@ -1689,13 +1857,28 @@ function createEscPosTicketBytes(plainText) {
   }
 });
 
+let currentHistoryPeriod = 'today';
+
 // Other Tabs Rendering functions
 function renderProducts() {
   const container = document.getElementById('productsListContainer');
   container.innerHTML = '';
   const search = (document.getElementById('prodSearchInput') ? document.getElementById('prodSearchInput').value : '').toLowerCase();
   
-  const filtered = STATE.products.filter(p => p.name.toLowerCase().includes(search) || (p.barcode && p.barcode.includes(search)));
+  const filtered = (STATE.products || []).filter(p => p.name.toLowerCase().includes(search) || (p.barcode && p.barcode.includes(search)));
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center; padding:30px 10px; color:var(--text-muted);">
+        <div style="font-size:32px; margin-bottom:8px;">📦</div>
+        <div>Aucun article trouvé</div>
+        <button class="btn-main" onclick="document.getElementById('btnAddNewProduct').click()" style="margin-top:12px; width:auto; padding:0 16px;">
+          ➕ Ajouter un article
+        </button>
+      </div>
+    `;
+    return;
+  }
 
   filtered.forEach(p => {
     const card = document.createElement('div');
@@ -1703,20 +1886,44 @@ function renderProducts() {
     card.style.display = 'flex';
     card.style.justifyContent = 'space-between';
     card.style.alignItems = 'center';
-    card.style.cursor = 'pointer';
+    card.style.marginBottom = '8px';
     card.innerHTML = `
-      <div style="flex:1;">
+      <div style="flex:1; cursor:pointer;" class="prod-info-click">
         <div style="font-weight: 700; font-size: 15px;">${p.name}</div>
-        <div style="font-size: 12px; color: var(--text-muted);">Stock : <strong style="color:${p.stock <= 5 ? 'var(--danger)' : 'var(--text-main)'};">${p.stock}</strong> | Code : ${p.barcode || 'Aucun'}</div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-top:2px;">
+          Stock : <strong style="color:${p.stock <= 5 ? 'var(--danger)' : 'var(--primary)'}; font-size:13px;">${p.stock}</strong> 
+          ${p.barcode ? `| Code: ${p.barcode}` : ''}
+        </div>
         <div style="font-size: 14px; font-weight: 700; color: var(--primary); margin-top: 2px;">${p.salePrice.toLocaleString('fr-FR')} CFA</div>
       </div>
       <div style="display:flex; gap:6px; align-items:center;">
-        <button class="icon-btn edit-prod-btn" style="color: var(--primary);">✏️</button>
+        <button class="icon-btn stock-minus-btn" style="border:1px solid var(--border); width:36px; height:36px; font-size:16px; font-weight:bold;">-</button>
+        <button class="icon-btn stock-plus-btn" style="border:1px solid var(--border); width:36px; height:36px; font-size:16px; font-weight:bold; color:var(--primary);">+</button>
+        <button class="icon-btn edit-prod-btn" style="border:1px solid var(--border); width:36px; height:36px; color: var(--primary);">✏️</button>
       </div>
     `;
-    card.addEventListener('click', () => {
-      openProductModal(p);
+
+    card.querySelector('.prod-info-click').addEventListener('click', () => openProductModal(p));
+    card.querySelector('.edit-prod-btn').addEventListener('click', () => openProductModal(p));
+    
+    card.querySelector('.stock-minus-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (p.stock > 0) {
+        p.stock -= 1;
+        saveToStorage();
+        renderProducts();
+        renderPos();
+      }
     });
+
+    card.querySelector('.stock-plus-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      p.stock += 1;
+      saveToStorage();
+      renderProducts();
+      renderPos();
+    });
+
     container.appendChild(card);
   });
 }
@@ -1726,27 +1933,46 @@ function renderHistory() {
   container.innerHTML = '';
   let totalPeriod = 0;
 
-  STATE.tickets.forEach(t => {
-    totalPeriod += t.totalAmount;
-    const card = document.createElement('div');
-    card.className = 'card-group';
-    card.style.marginBottom = '10px';
-    card.style.cursor = 'pointer';
-    card.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <div style="font-weight: 700; font-size: 14px;">${t.number}</div>
-          <div style="font-size: 11px; color: var(--text-muted);">${new Date(t.date).toLocaleString('fr-FR')}</div>
-        </div>
-        <div style="font-size: 16px; font-weight: 700; color: var(--primary);">${t.totalAmount.toLocaleString('fr-FR')} CFA</div>
-      </div>
-    `;
-    card.addEventListener('click', () => {
-      document.getElementById('receiptPaperContent').innerHTML = generateReceiptHtml(t);
-      document.getElementById('modalReceipt').classList.add('active');
-    });
-    container.appendChild(card);
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfYesterday = startOfToday - 86400000;
+  const startOfWeek = now.getTime() - (7 * 86400000);
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+  const filteredTickets = (STATE.tickets || []).filter(t => {
+    const tTime = new Date(t.date).getTime();
+    if (currentHistoryPeriod === 'today') return tTime >= startOfToday;
+    if (currentHistoryPeriod === 'yesterday') return tTime >= startOfYesterday && tTime < startOfToday;
+    if (currentHistoryPeriod === 'week') return tTime >= startOfWeek;
+    if (currentHistoryPeriod === 'month') return tTime >= startOfMonth;
+    return true; // 'all'
   });
+
+  if (filteredTickets.length === 0) {
+    container.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:20px; font-size:13px;">Aucune vente sur cette période</div>';
+  } else {
+    filteredTickets.forEach(t => {
+      totalPeriod += t.totalAmount;
+      const card = document.createElement('div');
+      card.className = 'card-group';
+      card.style.marginBottom = '10px';
+      card.style.cursor = 'pointer';
+      card.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-weight: 700; font-size: 14px;">${t.number}</div>
+            <div style="font-size: 11px; color: var(--text-muted);">${new Date(t.date).toLocaleString('fr-FR')}</div>
+          </div>
+          <div style="font-size: 16px; font-weight: 700; color: var(--primary);">${t.totalAmount.toLocaleString('fr-FR')} CFA</div>
+        </div>
+      `;
+      card.addEventListener('click', () => {
+        document.getElementById('receiptPaperContent').innerHTML = generateReceiptHtml(t);
+        document.getElementById('modalReceipt').classList.add('active');
+      });
+      container.appendChild(card);
+    });
+  }
 
   document.getElementById('historyTotalSales').textContent = totalPeriod.toLocaleString('fr-FR') + ' CFA';
 }
