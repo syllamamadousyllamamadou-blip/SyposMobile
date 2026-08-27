@@ -15,6 +15,8 @@
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='128' fill='%230D9488'/><text x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-size='260' fill='white'>🛍️</text></svg>">
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="style.css">
+  <!-- Forge Cryptography Library for RSA License Verification -->
+  <script src="https://cdn.jsdelivr.net/npm/node-forge@1.3.1/dist/forge.min.js"></script>
   <!-- HTML5 Barcode Scanner Library -->
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode/html5-qrcode.min.js"></script>
 </head>
@@ -244,6 +246,13 @@
         </div>
       </div>
 
+      <div class="card-group" style="border-left: 4px solid var(--primary);">
+        <h3 style="font-size: 16px; margin-bottom: 8px;">🔑 Statut de la Licence Commerciale</h3>
+        <div style="font-size: 13px; margin-bottom: 6px;">ID Appareil : <strong id="settingsDevId" style="font-family: 'JetBrains Mono', monospace; color: var(--primary);">SYPOS-DEV-XXXX-YYYY</strong></div>
+        <div style="font-size: 13px; margin-bottom: 12px;">État : <span id="settingsLicenseStatusBadge" style="padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 11px; background: #e8f5e9; color: #2e7d32;">Actif</span></div>
+        <button class="btn-main btn-secondary" id="btnOpenLicenseModal" style="margin:0; font-size: 14px; height: 42px;">📋 Gérer / Renouveler la Licence</button>
+      </div>
+
       <button class="btn-main" id="btnSaveSettings">💾 Enregistrer les Modifications</button>
     </section>
 
@@ -423,6 +432,47 @@
         <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;" id="pinActionDescription">Cette action nécessite le code PIN administrateur.</p>
         <input type="password" class="form-control" id="pinInputCode" maxlength="4" placeholder="••••" style="text-align: center; font-size: 28px; letter-spacing: 12px;">
         <button class="btn-main" id="btnSubmitPin" style="margin-top: 16px;">Déverrouiller</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: LICENSE ACTIVATION -->
+  <div class="modal-overlay" id="modalLicense" style="z-index: 300;">
+    <div class="bottom-sheet" style="max-height: 92vh;">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title" style="display: flex; align-items: center; gap: 8px;">
+          <span>🛡️</span> <span>Activation de Licence</span>
+        </div>
+        <button class="icon-btn close-modal" id="btnCloseLicenseModal">✕</button>
+      </div>
+      <div class="sheet-content">
+        <div style="background: var(--surface-variant); padding: 14px; border-radius: 14px; margin-bottom: 14px; text-align: center; border: 1px solid var(--border);">
+          <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Votre Identifiant Appareil</div>
+          <div id="licenseDialogDevId" style="font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--primary); margin: 6px 0; letter-spacing: 1px;">
+            SYPOS-DEV-XXXX-YYYY
+          </div>
+          <div style="display: flex; gap: 8px; justify-content: center; margin-top: 8px;">
+            <button class="btn-main btn-secondary" id="btnCopyDeviceId" style="margin:0; width: auto; height: 36px; padding: 0 12px; font-size: 12px;">
+              📋 Copier l'ID
+            </button>
+            <button class="btn-main" id="btnWhatsAppLicense" style="margin:0; width: auto; height: 36px; padding: 0 12px; font-size: 12px; background: #25D366;">
+              💬 Commander sur WhatsApp
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Clé de Licence Cryptographique (Format SYP1...)</label>
+          <textarea class="form-control" id="inputLicenseKey" rows="3" placeholder="Collez votre clé de licence ici (SYP1...)" style="height: 80px; font-family: 'JetBrains Mono', monospace; font-size: 12px; resize: none;"></textarea>
+        </div>
+
+        <div id="licenseFeedbackMsg" style="display: none; padding: 10px; border-radius: 10px; font-size: 13px; font-weight: 600; margin-bottom: 12px; text-align: center;"></div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <button class="btn-main btn-secondary" id="btnScanLicenseQr" style="margin:0;">📷 Scanner QR</button>
+          <button class="btn-main" id="btnValidateLicense" style="margin:0;">✅ Activer</button>
+        </div>
       </div>
     </div>
   </div>

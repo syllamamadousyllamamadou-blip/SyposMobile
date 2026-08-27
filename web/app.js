@@ -26,7 +26,11 @@ const STATE = {
     taxRatePercent: 18.0,
     adminPin: "1234",
     allowNegativeStock: false,
-    printerWidth: "58"
+    printerWidth: "58",
+    isLicensed: false,
+    licenseKey: "",
+    licenseType: "Non activé",
+    licenseExpiryDate: 0
   },
   cart: [],
   appliedPromo: null,
@@ -457,7 +461,106 @@ function generateReceiptHtml(ticket) {
 }
 
 // ==========================================
-// 7. ADMIN PIN SECURITY CHECK
+// 7. CRYPTOGRAPHIC LICENSE MANAGEMENT (RSA-2048)
+// ==========================================
+const RSA_PUBLIC_KEY_B64 = 
+  "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAy4fzpl4lsQkScqSwHrAx" +
+  "CiUEndXd1Kop9u/kKdGtxmvvJzxD15KN71TJ8ZVw/ds749Pz3yCdzlU7io5fDshu" +
+  "VLYNVCXIpOJUtjGdtxVNCv9l0+bpAUKLZpPEHGgyXlDGbVE8G6bOQXXt57CoFdTQ" +
+  "iGm7iBuQ2jcI6tW2Y0BZztforF57YX133ls9Eex5aM7pjzQcY31hrlLDKN3+1CD+" +
+  "/XFSfPw5WfcLlOYm0x6FzFkFhG6s5qSNB1cfQ5yjScXvHGXoRa5Eo/MH4BXkU2vT" +
+  "IZS5Y4+gqdc4T6drGyzQ2uUUtsII8zNSh0gRZAja452p4EuwpyrcgcopZG497gHp" +
+  "5QIDAQAB";
+
+function getDeviceId() {
+  let devId = localStorage.getItem('sypos_device_id');
+  if (!devId) {
+    const rawFp = (navigator.userAgent || '') + '|' + screen.width + 'x' + screen.height + '|' + (navigator.hardwareConcurrency || 4) + '|' + Date.now();
+    let hash = 0;
+    for (let i = 0; i < rawFp.length; i++) {
+      hash = ((hash << 5) - hash) + rawFp.charCodeAt(i);
+      hash |= 0;
+    }
+    const hex1 = Math.abs(hash).toString(16).toUpperCase().padStart(4, '0').substring(0, 4);
+    const hex2 = Math.floor(1000 + Math.random() * 9000).toString(16).toUpperCase().padStart(4, '0').substring(0, 4);
+    devId = `SYPOS-DEV-${hex1}-${hex2}`;
+    localStorage.setItem('sypos_device_id', devId);
+  }
+  return devId;
+}
+
+function base64UrlDecode(str) {
+  let b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4) b64 += '=';
+  return (typeof forge !== 'undefined') ? forge.util.decode64(b64) : atob(b64);
+}
+
+function validateLicenseToken(rawKey) {
+  const token = (rawKey || '').trim().replace(/[`\s\r\n]/g, '');
+  if (!token) return { isValid: false, message: "Veuillez saisir votre clé de licence." };
+  if (!token.startsWith('SYP1.')) return { isValid: false, message: "Clé invalide (doit commencer par 'SYP1.')." };
+
+  const parts = token.split('.');
+  if (parts.length !== 3) return { isValid: false, message: "Structure de clé corrompue." };
+
+  try {
+    const payloadBytes = base64UrlDecode(parts[1]);
+    const sigBytes = base64UrlDecode(parts[2]);
+
+    if (typeof forge === 'undefined') {
+      return { isValid: false, message: "Module cryptographique non chargé. Vérifiez votre connexion." };
+    }
+
+    const der = forge.util.decode64(RSA_PUBLIC_KEY_B64);
+    const asn1 = forge.asn1.fromDer(der);
+    const pubKey = forge.pki.publicKeyFromAsn1(asn1);
+
+    const md = forge.md.sha256.create();
+    md.update(payloadBytes, 'raw');
+    const isSignatureValid = pubKey.verify(md.digest().bytes(), sigBytes);
+
+    if (!isSignatureValid) {
+      return { isValid: false, message: "Signature invalide : cette clé est falsifiée ou corrompue." };
+    }
+
+    const payload = JSON.parse(payloadBytes);
+    const targetDevId = (payload.devId || '').trim().toUpperCase();
+    const currentDevId = getDeviceId().trim().toUpperCase();
+
+    if (targetDevId !== currentDevId) {
+      return { isValid: false, message: `Clé prévue pour l'appareil (${targetDevId}), incompatible avec (${currentDevId}).` };
+    }
+
+    const now = Date.now();
+    if (payload.exp && payload.exp > 0 && now > payload.exp) {
+      const expDate = new Date(payload.exp).toLocaleDateString('fr-FR');
+      return { isValid: false, message: `Cette licence a expiré le ${expDate}.` };
+    }
+
+    const planLabel = payload.plan === 'LIFETIME' ? 'Définitive (À Vie)' : (payload.plan === 'ANNUAL' ? 'Annuelle Pro' : 'Commerciale');
+
+    return {
+      isValid: true,
+      licenseType: planLabel,
+      expiryDate: payload.exp || 0,
+      shopName: payload.shop || STATE.settings.shopName,
+      message: `✅ Licence ${planLabel} activée avec succès !`
+    };
+  } catch (err) {
+    return { isValid: false, message: "Erreur de validation : " + err.message };
+  }
+}
+
+function isLicenseActive() {
+  if (!STATE.settings.isLicensed) return false;
+  if (STATE.settings.licenseExpiryDate > 0 && Date.now() > STATE.settings.licenseExpiryDate) {
+    return false;
+  }
+  return true;
+}
+
+// ==========================================
+// 8. ADMIN PIN SECURITY CHECK
 // ==========================================
 function requestAdminPin(actionDesc, onSuccess) {
   STATE.pendingPinAction = onSuccess;
@@ -467,12 +570,101 @@ function requestAdminPin(actionDesc, onSuccess) {
 }
 
 // ==========================================
-// 8. INITIALIZATION & EVENT LISTENERS
+// 9. INITIALIZATION & EVENT LISTENERS
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
   loadFromStorage();
   initTabs();
   renderPos();
+
+  // License System Setup & Verification
+  const currentDevId = getDeviceId();
+  const licenseDevIdEl = document.getElementById('licenseDialogDevId');
+  if (licenseDevIdEl) licenseDevIdEl.textContent = currentDevId;
+
+  function showLicenseModal(isInitial = false) {
+    const modal = document.getElementById('modalLicense');
+    const closeBtn = document.getElementById('btnCloseLicenseModal');
+    if (closeBtn) closeBtn.style.display = isInitial ? 'none' : 'block';
+    const feedback = document.getElementById('licenseFeedbackMsg');
+    if (feedback) feedback.style.display = 'none';
+    modal.classList.add('active');
+  }
+
+  // Check License on Startup (Auto lock if unactivated)
+  if (!isLicenseActive()) {
+    showLicenseModal(true);
+  }
+
+  // Copy Device ID button
+  document.getElementById('btnCopyDeviceId').addEventListener('click', () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(currentDevId).then(() => {
+        alert("📋 ID Appareil copié dans le presse-papier :\n" + currentDevId);
+      });
+    } else {
+      alert("Votre ID Appareil : " + currentDevId);
+    }
+  });
+
+  // WhatsApp Order License button
+  document.getElementById('btnWhatsAppLicense').addEventListener('click', () => {
+    const phone = STATE.settings.shopPhone ? STATE.settings.shopPhone.replace(/[^0-9]/g, '') : "2250758245530";
+    const msg = `Bonjour SYPOS, je souhaite activer la licence commerciale pour mon appareil :\n🆔 ID Appareil : *${currentDevId}*`;
+    window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`, '_blank');
+  });
+
+  // Validate License Button
+  document.getElementById('btnValidateLicense').addEventListener('click', () => {
+    const key = document.getElementById('inputLicenseKey').value;
+    const res = validateLicenseToken(key);
+    const feedback = document.getElementById('licenseFeedbackMsg');
+    feedback.style.display = 'block';
+    if (res.isValid) {
+      feedback.style.background = '#e8f5e9';
+      feedback.style.color = '#2e7d32';
+      feedback.textContent = res.message;
+      STATE.settings.isLicensed = true;
+      STATE.settings.licenseKey = key.trim();
+      STATE.settings.licenseType = res.licenseType;
+      STATE.settings.licenseExpiryDate = res.expiryDate;
+      saveToStorage();
+      setTimeout(() => {
+        document.getElementById('modalLicense').classList.remove('active');
+        renderSettings();
+      }, 1500);
+    } else {
+      feedback.style.background = '#ffebee';
+      feedback.style.color = '#c62828';
+      feedback.textContent = res.message;
+    }
+  });
+
+  // Scan License QR Code button
+  document.getElementById('btnScanLicenseQr').addEventListener('click', () => {
+    document.getElementById('modalLicense').classList.remove('active');
+    document.getElementById('modalScanner').classList.add('active');
+    const qr = new Html5Qrcode("qr-reader");
+    STATE.html5QrCode = qr;
+    qr.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, (token) => {
+      qr.stop().then(() => {
+        document.getElementById('modalScanner').classList.remove('active');
+        document.getElementById('inputLicenseKey').value = token;
+        document.getElementById('modalLicense').classList.add('active');
+        document.getElementById('btnValidateLicense').click();
+      });
+    }).catch(err => {
+      alert("Impossible d'ouvrir la caméra : " + err);
+      document.getElementById('modalScanner').classList.remove('active');
+      document.getElementById('modalLicense').classList.add('active');
+    });
+  });
+
+  // Open License Modal from Settings
+  const btnOpenLicense = document.getElementById('btnOpenLicenseModal');
+  if (btnOpenLicense) {
+    btnOpenLicense.addEventListener('click', () => showLicenseModal(false));
+  }
 
   // Search input live filter
   document.getElementById('posSearchInput').addEventListener('input', renderPos);
@@ -869,5 +1061,23 @@ function renderSettings() {
   document.getElementById('setAdminPin').value = STATE.settings.adminPin;
   if (document.getElementById('setPrinterWidth')) {
     document.getElementById('setPrinterWidth').value = STATE.settings.printerWidth || "58";
+  }
+
+  // Update License Status Card
+  const devIdEl = document.getElementById('settingsDevId');
+  if (devIdEl) devIdEl.textContent = getDeviceId();
+
+  const badge = document.getElementById('settingsLicenseStatusBadge');
+  if (badge) {
+    if (isLicenseActive()) {
+      const exp = STATE.settings.licenseExpiryDate ? ` (${new Date(STATE.settings.licenseExpiryDate).toLocaleDateString('fr-FR')})` : ' (À vie)';
+      badge.textContent = `✅ Active - ${STATE.settings.licenseType || 'Commerciale'}${exp}`;
+      badge.style.background = '#e8f5e9';
+      badge.style.color = '#2e7d32';
+    } else {
+      badge.textContent = '❌ Non Activée / Expirée';
+      badge.style.background = '#ffebee';
+      badge.style.color = '#c62828';
+    }
   }
 }
