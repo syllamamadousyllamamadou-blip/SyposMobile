@@ -1081,6 +1081,106 @@ function createEscPosTicketBytes(plainText) {
     }
   });
 
+  // Barcode Camera Scanner in POS tab
+  const btnOpenScan = document.getElementById('btnOpenScanner');
+  if (btnOpenScan) {
+    btnOpenScan.addEventListener('click', () => {
+      document.getElementById('modalScanner').classList.add('active');
+      if (STATE.html5QrCode) {
+        try { STATE.html5QrCode.stop(); } catch(e) {}
+      }
+      const qr = new Html5Qrcode("qr-reader");
+      STATE.html5QrCode = qr;
+      
+      const config = {
+        fps: 15,
+        qrbox: { width: 260, height: 160 },
+        aspectRatio: 1.777778
+      };
+
+      qr.start({ facingMode: "environment" }, config, (decodedText) => {
+        if (navigator.vibrate) navigator.vibrate(80);
+        
+        const matched = STATE.products.find(p => p.barcode && (p.barcode.trim() === decodedText.trim() || decodedText.includes(p.barcode.trim())));
+        if (matched) {
+          addToCart(matched);
+          alert(`✅ Article scanné : ${matched.name} (+1 au panier)`);
+        } else {
+          document.getElementById('posSearchInput').value = decodedText;
+          renderPos();
+        }
+
+        qr.stop().then(() => {
+          document.getElementById('modalScanner').classList.remove('active');
+        }).catch(() => {
+          document.getElementById('modalScanner').classList.remove('active');
+        });
+      }).catch(err => {
+        console.error("Camera start error:", err);
+        alert("⚠️ Impossible d'ouvrir la caméra : vérifiez les autorisations de votre navigateur.");
+        document.getElementById('modalScanner').classList.remove('active');
+      });
+    });
+  }
+
+  // Close scanner button
+  const btnCloseScan = document.getElementById('btnCloseScanner');
+  if (btnCloseScan) {
+    btnCloseScan.addEventListener('click', () => {
+      if (STATE.html5QrCode) {
+        try {
+          STATE.html5QrCode.stop().then(() => {
+            document.getElementById('modalScanner').classList.remove('active');
+          }).catch(() => {
+            document.getElementById('modalScanner').classList.remove('active');
+          });
+        } catch(e) {
+          document.getElementById('modalScanner').classList.remove('active');
+        }
+      } else {
+        document.getElementById('modalScanner').classList.remove('active');
+      }
+    });
+  }
+
+  // Bluetooth persistent auto-reconnect on startup & on focus
+  async function autoReconnectBluetooth() {
+    if (!navigator.bluetooth) return;
+    if (navigator.bluetooth.getDevices) {
+      try {
+        const devices = await navigator.bluetooth.getDevices();
+        if (devices && devices.length > 0) {
+          const dev = devices[0];
+          if (!dev.gatt.connected) {
+            console.log("Tentative de reconnexion automatique à :", dev.name);
+            const server = await dev.gatt.connect();
+            const services = await server.getPrimaryServices();
+            for (const s of services) {
+              const chars = await s.getCharacteristics();
+              for (const c of chars) {
+                if (c.properties.write || c.properties.writeWithoutResponse) {
+                  STATE.bleCharacteristic = c;
+                  STATE.bleDevice = dev;
+                  updateBleHeaderStatus(true, dev.name);
+                  console.log("✅ Imprimante Bluetooth reconnectée automatiquement !");
+                  return;
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Auto-reconnect silent fail:", e);
+      }
+    }
+  }
+
+  autoReconnectBluetooth();
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) autoReconnectBluetooth();
+  });
+  window.addEventListener('focus', autoReconnectBluetooth);
+
   // Bluetooth button in header (Android / Chrome Web Bluetooth)
   document.getElementById('btnHeaderBle').addEventListener('click', connectBluetoothPrinter);
 
