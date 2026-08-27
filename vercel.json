@@ -1,58 +1,11 @@
 {
   "version": 2,
+  "name": "sypos-license-portal",
   "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/admin",
-      "destination": "/license-portal/index.html"
-    },
-    {
-      "source": "/license-portal",
-      "destination": "/license-portal/index.html"
-    },
-    {
-      "source": "/license-portal/(.*)",
-      "destination": "/license-portal/$1"
-    },
-    {
-      "source": "/pos",
+      "source": "/(.*)",
       "destination": "/index.html"
-    },
-    {
-      "source": "/app",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/web",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/web/(.*)",
-      "destination": "/$1"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/service-worker.js",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
-        },
-        {
-          "key": "Service-Worker-Allowed",
-          "value": "/"
-        }
-      ]
-    },
-    {
-      "source": "/manifest.json",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
-        }
-      ]
     }
   ]
 }
