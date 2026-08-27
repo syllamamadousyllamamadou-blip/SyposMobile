@@ -79,12 +79,15 @@
         </div>
       </div>
 
-      <div class="card-group" style="display: flex; justify-content: space-between; align-items: center;">
+      <div class="card-group" style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
         <div>
           <div style="font-size: 12px; color: var(--text-muted);">Total Ventes Période</div>
           <div id="historyTotalSales" style="font-size: 20px; font-weight: 700; color: var(--primary);">0 CFA</div>
         </div>
-        <button class="btn-main btn-secondary" id="btnExportHistoryPdf" style="width: auto; height: 36px; padding: 0 12px; font-size: 13px; margin:0;">📄 PDF</button>
+        <div style="display: flex; gap: 6px;">
+          <button class="btn-main btn-secondary" id="btnExportHistoryCsv" style="width: auto; height: 36px; padding: 0 10px; font-size: 12px; margin:0;">📊 CSV</button>
+          <button class="btn-main btn-secondary" id="btnExportHistoryPdf" style="width: auto; height: 36px; padding: 0 10px; font-size: 12px; margin:0;">📄 PDF</button>
+        </div>
       </div>
 
       <div id="historyListContainer"></div>
@@ -95,7 +98,11 @@
       <div class="card-group">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
           <h3 style="font-size: 16px;">📊 Bilan Financier</h3>
-          <button class="btn-main" id="btnTriggerZReport" style="width: auto; height: 36px; padding: 0 12px; font-size: 13px; margin: 0; background: var(--purple);">Clôture Z</button>
+          <div style="display: flex; gap: 6px;">
+            <button class="btn-main btn-secondary" id="btnExportBilanCsv" style="width: auto; height: 34px; padding: 0 8px; font-size: 11px; margin:0;">📊 CSV</button>
+            <button class="btn-main btn-secondary" id="btnExportBilanPdf" style="width: auto; height: 34px; padding: 0 8px; font-size: 11px; margin:0;">📄 PDF</button>
+            <button class="btn-main" id="btnTriggerZReport" style="width: auto; height: 34px; padding: 0 10px; font-size: 12px; margin: 0; background: var(--primary);">🧾 Clôture Z</button>
+          </div>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
           <div style="background: var(--bg-system); padding: 12px; border-radius: 12px;">
@@ -103,7 +110,7 @@
             <div id="reportRevenue" style="font-size: 16px; font-weight: 700; color: var(--primary);">0 CFA</div>
           </div>
           <div style="background: var(--bg-system); padding: 12px; border-radius: 12px;">
-            <div style="font-size: 11px; color: var(--text-muted);">Bénéfice Brut</div>
+            <div style="font-size: 11px; color: var(--text-muted);">Bénéfice Net</div>
             <div id="reportProfit" style="font-size: 16px; font-weight: 700; color: var(--success);">0 CFA</div>
           </div>
         </div>
@@ -114,7 +121,7 @@
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-          <h4 style="font-size: 14px;">Dépenses du jour</h4>
+          <h4 style="font-size: 14px;">Dépenses & Sorties de Caisse</h4>
           <button class="btn-main btn-secondary" id="btnAddExpense" style="width: auto; height: 32px; padding: 0 10px; font-size: 12px; margin:0;">+ Dépense</button>
         </div>
         <div id="expensesListContainer" style="margin-top: 8px;"></div>
@@ -476,6 +483,147 @@
         <button class="btn-main btn-secondary" id="btnDemoMode" style="margin-top: 10px; font-size: 13px; height: 40px; color: var(--text-muted);">
           ▶️ Explorer l'application (Mode Démo / Essai)
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: RAPPORT Z (CLÔTURE DE CAISSE) -->
+  <div class="modal-overlay" id="modalZReport">
+    <div class="bottom-sheet" style="max-height: 92vh;">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title">🧾 Clôture & Rapport Z</div>
+        <button class="icon-btn close-modal">✕</button>
+      </div>
+      <div class="sheet-content">
+        <div class="receipt-paper" id="zReportPaperContent" style="margin-bottom: 14px;"></div>
+        <button class="btn-main" id="btnPrintZReportBleBtn" style="background: var(--primary); font-size: 15px; height: 48px;">
+          🖨️ Imprimer Rapport Z (Bluetooth)
+        </button>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px;">
+          <button class="btn-main btn-secondary" id="btnExportZReportPdf" style="margin:0;">📄 Exporter PDF</button>
+          <button class="btn-main btn-secondary" id="btnExportZReportCsv" style="margin:0;">📊 Exporter CSV</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: VENTES EN ATTENTE (PAUSE / HOLD CART) -->
+  <div class="modal-overlay" id="modalHeldSales">
+    <div class="bottom-sheet" style="max-height: 85vh;">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title">⏸️ Ventes en Pause / Attente</div>
+        <button class="icon-btn close-modal">✕</button>
+      </div>
+      <div class="sheet-content">
+        <button class="btn-main" id="btnHoldCurrentCartBtn" style="background: var(--warning); margin-bottom: 14px;">
+          ⏸️ Mettre le Panier Actuel en Pause
+        </button>
+        <div id="heldSalesListContainer"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: AJOUTER / MODIFIER UN PRODUIT -->
+  <div class="modal-overlay" id="modalProduct">
+    <div class="bottom-sheet" style="max-height: 90vh;">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title" id="modalProductTitle">📦 Ajouter un Article</div>
+        <button class="icon-btn close-modal">✕</button>
+      </div>
+      <div class="sheet-content">
+        <input type="hidden" id="prodEditId">
+        <div class="form-group">
+          <label>Désignation de l'article *</label>
+          <input type="text" class="form-control" id="prodInputName" placeholder="Ex: Eau Awa 1.5L">
+        </div>
+        <div class="form-group">
+          <label>Catégorie</label>
+          <div style="display: flex; gap: 8px;">
+            <select class="form-control" id="prodInputCategory">
+              <option value="Alimentation">Alimentation</option>
+              <option value="Boissons">Boissons</option>
+              <option value="Hygiène">Hygiène</option>
+              <option value="Divers">Divers</option>
+            </select>
+            <button class="btn-main btn-secondary" id="btnAddCategoryPrompt" style="width: auto; padding: 0 10px; margin:0;">+ Cat.</button>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div class="form-group">
+            <label>Prix d'Achat (CFA)</label>
+            <input type="number" class="form-control" id="prodInputCostPrice" placeholder="Ex: 300">
+          </div>
+          <div class="form-group">
+            <label>Prix de Vente (CFA) *</label>
+            <input type="number" class="form-control" id="prodInputSalePrice" placeholder="Ex: 400">
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div class="form-group">
+            <label>Stock Initial *</label>
+            <input type="number" class="form-control" id="prodInputStock" placeholder="Ex: 50">
+          </div>
+          <div class="form-group">
+            <label>Code-Barres</label>
+            <div style="display: flex; gap: 4px;">
+              <input type="text" class="form-control" id="prodInputBarcode" placeholder="Ex: 61811...">
+              <button class="icon-btn" id="btnScanBarcodeForProduct" style="border:1px solid var(--border); width:44px; height:44px;">📷</button>
+            </div>
+          </div>
+        </div>
+        <button class="btn-main" id="btnSaveProductSubmit" style="margin-top: 14px;">💾 Enregistrer l'Article</button>
+        <button class="btn-main btn-secondary" id="btnDeleteProductModal" style="margin-top: 8px; color: var(--danger); display:none;">🗑️ Supprimer l'Article</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: AJOUTER DÉPENSE / SORTIE DE CAISSE -->
+  <div class="modal-overlay" id="modalExpense">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title">💸 Enregistrer une Dépense</div>
+        <button class="icon-btn close-modal">✕</button>
+      </div>
+      <div class="sheet-content">
+        <div class="form-group">
+          <label>Motif de la Dépense *</label>
+          <input type="text" class="form-control" id="expenseInputReason" placeholder="Ex: Facture CIE, Transport, Achat sacs">
+        </div>
+        <div class="form-group">
+          <label>Montant (CFA) *</label>
+          <input type="number" class="form-control" id="expenseInputAmount" placeholder="Ex: 2500">
+        </div>
+        <button class="btn-main" id="btnSaveExpenseSubmit" style="margin-top: 14px; background: var(--danger);">💸 Valider la Sortie de Caisse</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: AJOUTER CLIENT -->
+  <div class="modal-overlay" id="modalCustomer">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title">👤 Nouveau Client</div>
+        <button class="icon-btn close-modal">✕</button>
+      </div>
+      <div class="sheet-content">
+        <div class="form-group">
+          <label>Nom Complet du Client *</label>
+          <input type="text" class="form-control" id="custInputName" placeholder="Ex: Koné Amadou">
+        </div>
+        <div class="form-group">
+          <label>Numéro Téléphone / WhatsApp</label>
+          <input type="text" class="form-control" id="custInputPhone" placeholder="Ex: 0707123456">
+        </div>
+        <div class="form-group">
+          <label>Dette Initiale (Optionnel - CFA)</label>
+          <input type="number" class="form-control" id="custInputDebt" placeholder="Ex: 0">
+        </div>
+        <button class="btn-main" id="btnSaveCustomerSubmit" style="margin-top: 14px;">💾 Enregistrer le Client</button>
       </div>
     </div>
   </div>
