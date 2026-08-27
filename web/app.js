@@ -834,8 +834,9 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    const payload = encodeURIComponent(JSON.stringify(entries));
-    // Thermer expects: thermer://<ENCODED_JSON>
+    // Thermer JSON structure expects { entries: [...] } object
+    const payloadObj = { entries: entries };
+    const payload = encodeURIComponent(JSON.stringify(payloadObj));
     const thermerUrl = `thermer://${payload}`;
 
     // Try to open Thermer
