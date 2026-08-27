@@ -1,18 +1,19 @@
 {
   "version": 2,
   "cleanUrls": true,
+  "public": true,
   "rewrites": [
     {
       "source": "/",
-      "destination": "/license-portal/index.html"
+      "destination": "/web/index.html"
     },
     {
-      "source": "/license-portal",
-      "destination": "/license-portal/index.html"
+      "source": "/pos",
+      "destination": "/web/index.html"
     },
     {
-      "source": "/license-portal/(.*)",
-      "destination": "/license-portal/$1"
+      "source": "/app",
+      "destination": "/web/index.html"
     },
     {
       "source": "/web",
@@ -23,8 +24,49 @@
       "destination": "/web/$1"
     },
     {
-      "source": "/(.*)",
+      "source": "/license-portal",
       "destination": "/license-portal/index.html"
+    },
+    {
+      "source": "/license-portal/(.*)",
+      "destination": "/license-portal/$1"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/web/service-worker.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        },
+        {
+          "key": "Service-Worker-Allowed",
+          "value": "/"
+        }
+      ]
+    },
+    {
+      "source": "/web/manifest.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        }
+      ]
     }
   ]
 }

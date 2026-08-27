@@ -4,12 +4,12 @@
   "description": "Système de caisse enregistreuse et gestion de stock pour commerces et supermarchés",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#F2F2F7",
-  "theme_color": "#007AFF",
+  "background_color": "#F8FAFC",
+  "theme_color": "#0D9488",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='128' fill='%23007AFF'/><text x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-size='260' fill='white'>🛍️</text></svg>",
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='128' fill='%230D9488'/><text x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-size='260' fill='white'>🛍️</text></svg>",
       "sizes": "192x192 512x512",
       "type": "image/svg+xml",
       "purpose": "any maskable"

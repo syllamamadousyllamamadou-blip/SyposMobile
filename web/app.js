@@ -25,7 +25,8 @@ const STATE = {
     taxEnabled: false,
     taxRatePercent: 18.0,
     adminPin: "1234",
-    allowNegativeStock: false
+    allowNegativeStock: false,
+    printerWidth: "58"
   },
   cart: [],
   appliedPromo: null,
@@ -330,27 +331,93 @@ async function sendToPrinter(rawBytes) {
 // ==========================================
 // 6. RECEIPT GENERATOR & PRINTING
 // ==========================================
+function removeAccents(str) {
+  if (!str) return '';
+  return String(str)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/œ/g, "oe")
+    .replace(/æ/g, "ae")
+    .replace(/[^\x20-\x7E\n]/g, ""); // Keep pure ASCII for thermal print heads
+}
+
+function padLine(left, right, width, fill = ' ') {
+  left = String(left || '');
+  right = String(right || '');
+  const maxLeft = width - right.length - 1;
+  if (left.length > maxLeft) {
+    left = left.substring(0, maxLeft);
+  }
+  const spaces = Math.max(1, width - left.length - right.length);
+  return left + fill.repeat(spaces) + right;
+}
+
+function centerText(text, width) {
+  text = String(text || '').trim();
+  if (text.length >= width) return text.substring(0, width);
+  const leftPad = Math.floor((width - text.length) / 2);
+  const rightPad = width - text.length - leftPad;
+  return ' '.repeat(leftPad) + text + ' '.repeat(rightPad);
+}
+
 function generateReceiptPlainText(ticket) {
+  const width = (STATE.settings.printerWidth === "80") ? 42 : 32;
+  const sep = '='.repeat(width);
+  const dash = '-'.repeat(width);
   const dateStr = new Date(ticket.date).toLocaleString('fr-FR');
-  let itemsTxt = '';
+
+  let out = [];
+  out.push(sep);
+  out.push(centerText(removeAccents(STATE.settings.shopName || "SYPOS COMMERCE").toUpperCase(), width));
+  if (STATE.settings.shopAddress) {
+    out.push(centerText(removeAccents(STATE.settings.shopAddress), width));
+  }
+  if (STATE.settings.shopPhone) {
+    out.push(centerText("Tel: " + removeAccents(STATE.settings.shopPhone), width));
+  }
+  out.push(sep);
+  out.push(padLine("Ticket:", ticket.number, width));
+  out.push(padLine("Date:", dateStr, width));
+  out.push(padLine("Vendeur:", removeAccents(STATE.settings.sellerName || "Caisse"), width));
+  out.push(dash);
+
   ticket.items.forEach(it => {
-    itemsTxt += `${it.productName}\n  ${it.qty} x ${it.price.toLocaleString('fr-FR')} CFA = ${(it.price * it.qty).toLocaleString('fr-FR')} CFA\n`;
+    const name = removeAccents(it.productName);
+    const totalLine = (it.price * it.qty).toLocaleString('fr-FR') + ' F';
+    const qtyLine = `${it.qty}x${it.price.toLocaleString('fr-FR')}`;
+    
+    // Check if item fits in one line with dots
+    const leftText = `${name} (${qtyLine})`;
+    if (leftText.length + totalLine.length + 2 <= width) {
+      out.push(padLine(leftText, totalLine, width, '.'));
+    } else {
+      // Print name on first line, and qty + price on second line
+      out.push(name.substring(0, width));
+      out.push(padLine(`  ${qtyLine}`, totalLine, width, '.'));
+    }
   });
 
-  return `${STATE.settings.shopName.toUpperCase()}
-${STATE.settings.shopAddress}
-Tel: ${STATE.settings.shopPhone}
---------------------------------
-Ticket: ${ticket.number}
-Date: ${dateStr}
-Vendeur: ${STATE.settings.sellerName}
---------------------------------
-${itemsTxt}--------------------------------
-TOTAL NET: ${ticket.totalAmount.toLocaleString('fr-FR')} CFA
-Reglement: ${ticket.paymentMethod.toUpperCase()}
---------------------------------
-${STATE.settings.receiptFooter}
-${STATE.settings.showPublisherSignature ? STATE.settings.publisherSignatureText : ''}`;
+  out.push(dash);
+  out.push(padLine("TOTAL NET :", ticket.totalAmount.toLocaleString('fr-FR') + ' CFA', width));
+  out.push(padLine("Reglement :", removeAccents((ticket.paymentMethod || 'ESPECES').toUpperCase()), width));
+
+  if (ticket.cashReceived) {
+    out.push(padLine("Recu :", ticket.cashReceived.toLocaleString('fr-FR') + ' CFA', width));
+  }
+  if (ticket.changeGiven) {
+    out.push(padLine("Rendu :", ticket.changeGiven.toLocaleString('fr-FR') + ' CFA', width));
+  }
+  out.push(sep);
+
+  if (STATE.settings.receiptFooter) {
+    out.push(centerText(removeAccents(STATE.settings.receiptFooter), width));
+  }
+  if (STATE.settings.showPublisherSignature) {
+    out.push(centerText(removeAccents(STATE.settings.publisherSignatureText || "SYPOS MOBILE 0758245530"), width));
+  }
+  
+  out.push('\n\n'); // Line feeds for paper cut
+  return out.join('\n');
 }
 
 function generateReceiptHtml(ticket) {
@@ -519,22 +586,91 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('modalReceipt').classList.add('active');
   });
 
-  // Print via Thermer BLE App
+  // Print via Thermer BLE App (iOS Deep Link & Fallback)
+  function sendToThermerApp(ticket) {
+    if (!ticket) return;
+    const plainText = generateReceiptPlainText(ticket);
+
+    // 1. Copy to clipboard as quick fallback
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(plainText).catch(() => {});
+    }
+
+    // 2. Build structured PrintEntry JSON for Thermer
+    const entries = [
+      { type: "text", text: (STATE.settings.shopName || "SYPOS MOBILE").toUpperCase(), alignment: "center", bold: true, size: 2 },
+      { type: "text", text: STATE.settings.shopAddress || "", alignment: "center" },
+      { type: "text", text: "Tel: " + (STATE.settings.shopPhone || ""), alignment: "center" },
+      { type: "line" },
+      { type: "text", text: "Ticket: " + ticket.number, alignment: "left", bold: true },
+      { type: "text", text: "Date: " + new Date(ticket.date).toLocaleString('fr-FR'), alignment: "left" },
+      { type: "text", text: "Vendeur: " + (STATE.settings.sellerName || "Caisse"), alignment: "left" },
+      { type: "line" }
+    ];
+
+    ticket.items.forEach(it => {
+      const lineLeft = `${it.productName} x${it.qty}`;
+      const lineRight = `${(it.price * it.qty).toLocaleString('fr-FR')} CFA`;
+      entries.push({
+        type: "text",
+        text: `${lineLeft.padEnd(20, ' ')} ${lineRight}`,
+        alignment: "left"
+      });
+    });
+
+    entries.push(
+      { type: "line" },
+      { type: "text", text: `TOTAL: ${ticket.totalAmount.toLocaleString('fr-FR')} CFA`, alignment: "right", bold: true, size: 2 },
+      { type: "text", text: `Reglement: ${(ticket.paymentMethod || 'ESPECES').toUpperCase()}`, alignment: "left" },
+      { type: "line" },
+      { type: "text", text: STATE.settings.receiptFooter || "Merci de votre visite !", alignment: "center" }
+    );
+
+    if (STATE.settings.showPublisherSignature) {
+      entries.push({
+        type: "text",
+        text: STATE.settings.publisherSignatureText || "Sypos Mobile - Caisse Intelligente",
+        alignment: "center"
+      });
+    }
+
+    const payload = encodeURIComponent(JSON.stringify(entries));
+    const thermerUrl = `thermer://print?data=${payload}`;
+
+    // Try to open Thermer
+    window.location.href = thermerUrl;
+
+    // Provide user feedback
+    setTimeout(() => {
+      if (document.hidden) return; // App opened
+      // If still on screen, show friendly prompt
+      console.log("Deep link triggered for Thermer");
+    }, 1200);
+  }
+
+  // Button Thermer in Receipt Modal
   document.getElementById('btnPrintThermerBtn').addEventListener('click', () => {
     if (STATE.tickets.length === 0) return;
-    const t = STATE.tickets[0];
-    const text = generateReceiptPlainText(t);
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(text);
-    }
-    if (navigator.share) {
-      navigator.share({ title: 'Ticket ' + t.number, text: text }).catch(() => {
-        window.location.href = "thermer://";
-      });
-    } else {
-      window.location.href = "thermer://";
-    }
+    sendToThermerApp(STATE.tickets[0]);
   });
+
+  // Test Thermer Button in Settings
+  const btnTestThermer = document.getElementById('btnTestThermerPrint');
+  if (btnTestThermer) {
+    btnTestThermer.addEventListener('click', () => {
+      const dummyTicket = {
+        number: 'TEST-' + Math.floor(1000 + Math.random() * 9000),
+        date: Date.now(),
+        items: [
+          { productName: 'Article Test 1', qty: 1, price: 1500 },
+          { productName: 'Article Test 2', qty: 2, price: 2500 }
+        ],
+        totalAmount: 6500,
+        paymentMethod: 'cash'
+      };
+      sendToThermerApp(dummyTicket);
+    });
+  }
 
   // Print Receipt Button (Standard / PDF)
   document.getElementById('btnPrintReceiptBtn').addEventListener('click', () => {
@@ -563,7 +699,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Bluetooth button in header
+  // Bluetooth button in header (Android / Chrome Web Bluetooth)
   document.getElementById('btnHeaderBle').addEventListener('click', connectBluetoothPrinter);
 
   // Settings Save
@@ -573,12 +709,36 @@ document.addEventListener('DOMContentLoaded', () => {
     STATE.settings.shopPhone = document.getElementById('setShopPhone').value;
     STATE.settings.sellerName = document.getElementById('setSellerName').value;
     STATE.settings.receiptFooter = document.getElementById('setReceiptFooter').value;
-    STATE.settings.setShowSignature = document.getElementById('setShowSignature').checked;
+    STATE.settings.showPublisherSignature = document.getElementById('setShowSignature').checked;
     STATE.settings.taxEnabled = document.getElementById('setTaxEnabled').checked;
     STATE.settings.adminPin = document.getElementById('setAdminPin').value || "1234";
+    STATE.settings.printerWidth = document.getElementById('setPrinterWidth').value || "58";
     saveToStorage();
     alert("✅ Paramètres enregistrés avec succès !");
   });
+
+  // Print Label in Tools Tab
+  const btnPrintLabel = document.getElementById('btnPrintLabelNow');
+  if (btnPrintLabel) {
+    btnPrintLabel.addEventListener('click', () => {
+      const name = document.getElementById('toolNameInput').value || 'Article';
+      const price = document.getElementById('toolPriceInput').value || '0';
+      const barcode = document.getElementById('toolBarcodeInput').value || '';
+      
+      const labelEntries = [
+        { type: "text", text: (STATE.settings.shopName || "SYPOS").toUpperCase(), alignment: "center", bold: true },
+        { type: "text", text: name, alignment: "center", bold: true, size: 2 },
+        { type: "text", text: price + " CFA", alignment: "center", bold: true, size: 2 },
+        { type: "line" }
+      ];
+      if (barcode) {
+        labelEntries.push({ type: "text", text: "Code: " + barcode, alignment: "center" });
+      }
+
+      const payload = encodeURIComponent(JSON.stringify(labelEntries));
+      window.location.href = `thermer://print?data=${payload}`;
+    });
+  }
 
   // Service Worker Registration for PWA Offline
   if ('serviceWorker' in navigator) {
@@ -707,4 +867,7 @@ function renderSettings() {
   document.getElementById('setShowSignature').checked = STATE.settings.showPublisherSignature;
   document.getElementById('setTaxEnabled').checked = STATE.settings.taxEnabled;
   document.getElementById('setAdminPin').value = STATE.settings.adminPin;
+  if (document.getElementById('setPrinterWidth')) {
+    document.getElementById('setPrinterWidth').value = STATE.settings.printerWidth || "58";
+  }
 }
