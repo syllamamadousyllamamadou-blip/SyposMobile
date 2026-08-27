@@ -1,912 +1,487 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SYPOS Mobile — Plateforme Admin de Gestion des Licences</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/node-forge@1.3.1/dist/forge.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-    <style>
-        :root {
-            --primary: #3b82f6;
-            --primary-glow: rgba(59, 130, 246, 0.25);
-            --success: #10b981;
-            --warning: #f59e0b;
-            --danger: #ef4444;
-            --bg: #090d16;
-            --surface: #111827;
-            --surface-card: #172033;
-            --surface-hover: #1e293b;
-            --border: #243048;
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-            --radius-sm: 8px;
-            --radius-md: 14px;
-            --radius-lg: 20px;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
-        }
-
-        body {
-            background-color: var(--bg);
-            color: var(--text-main);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow-x: hidden;
-        }
-
-        /* --- LOGIN SCREEN --- */
-        #loginScreen {
-            position: fixed;
-            inset: 0;
-            background: radial-gradient(circle at 50% 30%, #1e293b 0%, #090d16 80%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            z-index: 1000;
-        }
-
-        .login-card {
-            width: 100%;
-            max-width: 420px;
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            padding: 36px 28px;
-            box-shadow: 0 25px 60px -15px rgba(0,0,0,0.8);
-            text-align: center;
-        }
-
-        .login-icon {
-            width: 68px;
-            height: 68px;
-            background: linear-gradient(135deg, #2563eb, #3b82f6);
-            border-radius: 18px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 32px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 25px var(--primary-glow);
-        }
-
-        /* --- TOP NAV --- */
-        header {
-            background: rgba(17, 24, 39, 0.85);
-            backdrop-filter: blur(12px);
-            border-bottom: 1px solid var(--border);
-            padding: 16px 24px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .brand-logo {
-            width: 38px;
-            height: 38px;
-            background: linear-gradient(135deg, #2563eb, #3b82f6);
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 800;
-            color: white;
-            font-size: 18px;
-        }
-
-        .brand-title {
-            font-size: 18px;
-            font-weight: 800;
-            letter-spacing: -0.5px;
-        }
-
-        .brand-sub {
-            font-size: 11px;
-            color: var(--text-muted);
-            font-weight: 600;
-        }
-
-        .nav-actions {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        /* --- MAIN LAYOUT --- */
-        main {
-            max-width: 1200px;
-            width: 100%;
-            margin: 0 auto;
-            padding: 28px 20px 60px;
-            flex: 1;
-        }
-
-        .grid-dashboard {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 24px;
-        }
-
-        @media (max-width: 960px) {
-            .grid-dashboard {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        /* --- CARDS & PANELS --- */
-        .card {
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            padding: 24px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-        }
-
-        .card-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 20px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .card-title {
-            font-size: 17px;
-            font-weight: 700;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        /* --- STATS COUNTERS --- */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 14px;
-            margin-bottom: 24px;
-        }
-
-        @media (max-width: 640px) {
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-
-        .stat-box {
-            background: var(--surface-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            padding: 16px;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .stat-box::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 4px;
-            height: 100%;
-            background: var(--primary);
-        }
-
-        .stat-box.green::after { background: var(--success); }
-        .stat-box.amber::after { background: var(--warning); }
-        .stat-box.purple::after { background: #8b5cf6; }
-
-        .stat-num {
-            font-size: 24px;
-            font-weight: 800;
-            margin-top: 4px;
-        }
-
-        .stat-lbl {
-            font-size: 12px;
-            color: var(--text-muted);
-            font-weight: 600;
-        }
-
-        /* --- FORM CONTROLS --- */
-        .form-group {
-            margin-bottom: 16px;
-        }
-
-        label {
-            display: block;
-            font-size: 13px;
-            font-weight: 600;
-            color: #cbd5e1;
-            margin-bottom: 6px;
-        }
-
-        input, select {
-            width: 100%;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            padding: 12px 14px;
-            color: var(--text-main);
-            font-size: 14px;
-            outline: none;
-            transition: all 0.2s;
-        }
-
-        input:focus, select:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px var(--primary-glow);
-        }
-
-        .plans-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-        }
-
-        .plan-btn {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-md);
-            padding: 12px 10px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .plan-btn.active {
-            border-color: var(--primary);
-            background: rgba(59, 130, 246, 0.15);
-        }
-
-        .plan-btn-title {
-            font-size: 13px;
-            font-weight: 700;
-            color: var(--text-main);
-        }
-
-        .plan-btn-sub {
-            font-size: 11px;
-            color: var(--text-muted);
-            margin-top: 2px;
-        }
-
-        .btn-primary {
-            width: 100%;
-            padding: 14px;
-            background: linear-gradient(135deg, #2563eb, #1d4ed8);
-            border: none;
-            border-radius: var(--radius-md);
-            color: white;
-            font-weight: 700;
-            font-size: 15px;
-            cursor: pointer;
-            box-shadow: 0 8px 20px var(--primary-glow);
-            transition: transform 0.1s, opacity 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-
-        .btn-primary:hover {
-            opacity: 0.95;
-            transform: translateY(-1px);
-        }
-
-        /* --- OUTPUT PANEL --- */
-        .output-card {
-            display: none;
-            background: #0d1322;
-            border: 1px solid rgba(16, 185, 129, 0.3);
-            border-radius: var(--radius-md);
-            padding: 20px;
-            margin-top: 20px;
-            animation: fadeIn 0.3s ease;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(6px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .qr-wrapper {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 20px;
-            background: #090d16;
-            padding: 16px;
-            border-radius: var(--radius-md);
-            border: 1px solid var(--border);
-            margin-bottom: 16px;
-        }
-
-        #qrCodeContainer {
-            background: white;
-            padding: 10px;
-            border-radius: 10px;
-            display: inline-block;
-        }
-
-        .token-box {
-            font-family: 'JetBrains Mono', monospace;
-            background: #040810;
-            border: 1px solid var(--border);
-            color: #86efac;
-            font-size: 11px;
-            padding: 12px;
-            border-radius: var(--radius-sm);
-            word-break: break-all;
-            max-height: 85px;
-            overflow-y: auto;
-            margin: 12px 0;
-        }
-
-        .actions-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-
-        .btn-action {
-            padding: 10px;
-            border-radius: var(--radius-sm);
-            border: none;
-            font-size: 13px;
-            font-weight: 700;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            transition: opacity 0.2s;
-        }
-
-        .btn-copy { background: #334155; color: white; }
-        .btn-whatsapp { background: #25d366; color: #022c0e; }
-        .btn-download { background: #1e293b; color: #94a3b8; grid-column: span 2; }
-
-        /* --- HISTORY TABLE --- */
-        .table-responsive {
-            overflow-x: auto;
-            margin-top: 10px;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-        }
-
-        th {
-            text-align: left;
-            padding: 12px 14px;
-            color: var(--text-muted);
-            border-bottom: 1px solid var(--border);
-            font-weight: 600;
-        }
-
-        td {
-            padding: 12px 14px;
-            border-bottom: 1px solid rgba(255,255,255,0.04);
-        }
-
-        tr:hover td {
-            background: rgba(255,255,255,0.02);
-        }
-
-        .badge-pill {
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: 700;
-        }
-
-        .badge-lifetime { background: rgba(16, 185, 129, 0.15); color: #34d399; }
-        .badge-annual { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
-        .badge-trial { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
-
-        .toast {
-            position: fixed;
-            bottom: 24px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #10b981;
-            color: #022c0e;
-            padding: 12px 24px;
-            border-radius: 40px;
-            font-weight: 700;
-            font-size: 14px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            display: none;
-            z-index: 1000;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>SYPOS Mobile — Caisse & Gestion</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="SYPOS Mobile">
+  <meta name="theme-color" content="#0D9488">
+  <!-- Google Fonts: Inter & JetBrains Mono for receipts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='128' fill='%230D9488'/><text x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-size='260' fill='white'>🛍️</text></svg>">
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+  <!-- Forge Cryptography Library for RSA License Verification -->
+  <script src="https://cdn.jsdelivr.net/npm/node-forge@1.3.1/dist/forge.min.js"></script>
+  <!-- HTML5 Barcode Scanner Library -->
+  <script src="https://cdn.jsdelivr.net/npm/html5-qrcode/html5-qrcode.min.js"></script>
 </head>
 <body>
 
-<!-- LOGIN MODAL -->
-<div id="loginScreen">
-    <div class="login-card">
-        <div class="login-icon">🔐</div>
-        <h2 style="font-size: 22px; font-weight: 800; margin-bottom: 6px;">Portail Administrateur</h2>
-        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 24px;">Générateur Officiel de Licences SYPOS Mobile</p>
-        
-        <form onsubmit="handleLogin(event)">
-            <div class="form-group" style="text-align: left;">
-                <label for="adminPass">Mot de passe Administrateur</label>
-                <input type="password" id="adminPass" placeholder="••••••••" required autofocus style="text-align: center; font-size: 16px; letter-spacing: 2px;">
-            </div>
-            <button type="submit" class="btn-primary">Déverrouiller le Portail</button>
-            <p style="font-size: 11px; color: var(--text-muted); margin-top: 14px;">Mot de passe par défaut : <code>sypos2026</code></p>
-        </form>
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="header-title" id="headerTitle">🛍️ SYPOS Mobile</div>
+    <div class="header-actions">
+      <button class="icon-btn" id="btnHeldSales" title="Ventes en attente" style="position: relative;">
+        ⏸️<span id="heldBadge" style="display:none; position:absolute; top:-4px; right:-4px; background:#FF9500; color:white; font-size:10px; border-radius:10px; padding:2px 5px; font-weight:bold;">0</span>
+      </button>
+      <button class="icon-btn" id="btnHeaderBle" title="Imprimante BLE">🖨️</button>
     </div>
-</div>
+  </header>
 
-<!-- MAIN DASHBOARD -->
-<header>
-    <div class="brand">
-        <div class="brand-logo">SY</div>
+  <!-- App Main Content Area -->
+  <main class="app-content">
+
+    <!-- TAB 1: POS / CAISSE -->
+    <section id="view-pos" class="view-section active">
+      <div class="search-bar-wrap">
+        <div class="search-box">
+          <span>🔍</span>
+          <input type="text" id="posSearchInput" placeholder="Rechercher ou scanner code-barres...">
+        </div>
+        <button class="scan-action-btn" id="btnOpenScanner">📷</button>
+      </div>
+
+      <!-- Categories Filter Scroll -->
+      <div class="category-scroll" id="posCategoryScroll">
+        <button class="cat-pill active" data-cat="">Tous</button>
+      </div>
+
+      <!-- Product Catalog Grid -->
+      <div class="product-grid" id="posProductGrid"></div>
+    </section>
+
+    <!-- TAB 2: CATALOGUE / PRODUITS -->
+    <section id="view-products" class="view-section">
+      <div class="search-bar-wrap">
+        <div class="search-box">
+          <span>🔍</span>
+          <input type="text" id="prodSearchInput" placeholder="Filtrer les articles...">
+        </div>
+        <button class="scan-action-btn" id="btnAddNewProduct">➕</button>
+      </div>
+      <div id="productsListContainer"></div>
+    </section>
+
+    <!-- TAB 3: HISTORIQUE / VENTES -->
+    <section id="view-history" class="view-section">
+      <div class="card-group" style="padding: 10px;">
+        <div style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px;">
+          <button class="cat-pill active history-filter" data-period="today">Aujourd'hui</button>
+          <button class="cat-pill history-filter" data-period="yesterday">Hier</button>
+          <button class="cat-pill history-filter" data-period="week">7 jours</button>
+          <button class="cat-pill history-filter" data-period="month">Ce mois</button>
+          <button class="cat-pill history-filter" data-period="all">Tout</button>
+        </div>
+      </div>
+
+      <div class="card-group" style="display: flex; justify-content: space-between; align-items: center;">
         <div>
-            <div class="brand-title">SYPOS License Portal</div>
-            <div class="brand-sub">Console de Gestion Cryptographique</div>
+          <div style="font-size: 12px; color: var(--text-muted);">Total Ventes Période</div>
+          <div id="historyTotalSales" style="font-size: 20px; font-weight: 700; color: var(--primary);">0 CFA</div>
         </div>
+        <button class="btn-main btn-secondary" id="btnExportHistoryPdf" style="width: auto; height: 36px; padding: 0 12px; font-size: 13px; margin:0;">📄 PDF</button>
+      </div>
+
+      <div id="historyListContainer"></div>
+    </section>
+
+    <!-- TAB 4: BILAN & STATS -->
+    <section id="view-reports" class="view-section">
+      <div class="card-group">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="font-size: 16px;">📊 Bilan Financier</h3>
+          <button class="btn-main" id="btnTriggerZReport" style="width: auto; height: 36px; padding: 0 12px; font-size: 13px; margin: 0; background: var(--purple);">Clôture Z</button>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+          <div style="background: var(--bg-system); padding: 12px; border-radius: 12px;">
+            <div style="font-size: 11px; color: var(--text-muted);">Chiffre d'Affaires</div>
+            <div id="reportRevenue" style="font-size: 16px; font-weight: 700; color: var(--primary);">0 CFA</div>
+          </div>
+          <div style="background: var(--bg-system); padding: 12px; border-radius: 12px;">
+            <div style="font-size: 11px; color: var(--text-muted);">Bénéfice Brut</div>
+            <div id="reportProfit" style="font-size: 16px; font-weight: 700; color: var(--success);">0 CFA</div>
+          </div>
+        </div>
+
+        <div style="background: var(--bg-system); padding: 12px; border-radius: 12px; margin-bottom: 10px;">
+          <div style="font-size: 11px; color: var(--text-muted);">Valeur Totale du Stock (Prix de Vente)</div>
+          <div id="reportStockValue" style="font-size: 17px; font-weight: 700; color: var(--warning);">0 CFA</div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+          <h4 style="font-size: 14px;">Dépenses du jour</h4>
+          <button class="btn-main btn-secondary" id="btnAddExpense" style="width: auto; height: 32px; padding: 0 10px; font-size: 12px; margin:0;">+ Dépense</button>
+        </div>
+        <div id="expensesListContainer" style="margin-top: 8px;"></div>
+      </div>
+    </section>
+
+    <!-- TAB 5: CLIENTS & CRÉDITS -->
+    <section id="view-customers" class="view-section">
+      <div class="card-group" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div style="font-size: 12px; color: var(--text-muted);">Total Dettes Clients</div>
+          <div id="customerTotalDebt" style="font-size: 20px; font-weight: 700; color: var(--danger);">0 CFA</div>
+        </div>
+        <button class="btn-main" id="btnAddCustomer" style="width: auto; height: 36px; padding: 0 12px; font-size: 13px; margin:0;">+ Nouveau</button>
+      </div>
+      <div id="customersListContainer"></div>
+    </section>
+
+    <!-- TAB 6: OUTILS & ÉTIQUETTES -->
+    <section id="view-tools" class="view-section">
+      <div class="card-group">
+        <h3 style="font-size: 16px; margin-bottom: 12px;">🏷️ Générateur d'Étiquettes Thermiques</h3>
+        <div style="display: flex; gap: 6px; overflow-x: auto; margin-bottom: 14px;">
+          <button class="cat-pill active preset-btn" data-preset="full">Complet</button>
+          <button class="cat-pill preset-btn" data-preset="code_only">Code Seul</button>
+          <button class="cat-pill preset-btn" data-preset="code_serial">+ N° Série</button>
+          <button class="cat-pill preset-btn" data-preset="shelf">Rayon Nom+Prix</button>
+        </div>
+
+        <div class="form-group">
+          <label>Sélectionner un Produit</label>
+          <select class="form-control" id="toolProductSelect">
+            <option value="">-- Personnalisé --</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Nom sur l'étiquette</label>
+          <input type="text" class="form-control" id="toolNameInput" placeholder="Ex: Savon Lux 150g">
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div class="form-group">
+            <label>Prix (CFA)</label>
+            <input type="number" class="form-control" id="toolPriceInput" placeholder="Ex: 500">
+          </div>
+          <div class="form-group">
+            <label>Code-Barres</label>
+            <input type="text" class="form-control" id="toolBarcodeInput" placeholder="Ex: 61811005234">
+          </div>
+        </div>
+
+        <!-- Label Preview -->
+        <div class="receipt-paper receipt-center" id="labelPreviewBox" style="background: #fafafa; border: 1px solid #ccc; margin: 16px 0;">
+          <div id="lblShop" class="receipt-bold" style="font-size: 11px;">SYPOS COMMERCE</div>
+          <div id="lblName" class="receipt-bold" style="font-size: 14px; margin: 4px 0;">Savon Lux 150g</div>
+          <div id="lblPrice" class="receipt-bold" style="font-size: 18px; color: var(--primary);">500 CFA</div>
+          <div id="lblBarcode" style="letter-spacing: 3px; font-family: monospace; margin-top: 4px;">||||||||||||||||||||</div>
+          <div id="lblSerial" style="font-size: 11px;">61811005234</div>
+        </div>
+
+        <button class="btn-main" id="btnPrintLabelNow">🖨️ Imprimer l'Étiquette</button>
+      </div>
+    </section>
+
+    <!-- TAB 7: PARAMÈTRES -->
+    <section id="view-settings" class="view-section">
+      <div class="card-group">
+        <h3 style="font-size: 16px; margin-bottom: 12px;">⚙️ Informations de la Boutique</h3>
+        <div class="form-group">
+          <label>Nom de la Boutique</label>
+          <input type="text" class="form-control" id="setShopName">
+        </div>
+        <div class="form-group">
+          <label>Adresse</label>
+          <input type="text" class="form-control" id="setShopAddress">
+        </div>
+        <div class="form-group">
+          <label>Téléphone</label>
+          <input type="text" class="form-control" id="setShopPhone">
+        </div>
+        <div class="form-group">
+          <label>Nom du Vendeur</label>
+          <input type="text" class="form-control" id="setSellerName">
+        </div>
+        <div class="form-group">
+          <label>Pied de page ticket</label>
+          <input type="text" class="form-control" id="setReceiptFooter">
+        </div>
+      </div>
+
+      <div class="card-group">
+        <h3 style="font-size: 16px; margin-bottom: 8px;">🖨️ Imprimante Thermique (iPhone / iOS)</h3>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+          Sur iPhone/Safari, l'impression Bluetooth s'effectue via l'application gratuite <strong>Thermer</strong> avec formatage calibré anti-déformation.
+        </p>
+
+        <div class="form-group">
+          <label>Format de papier</label>
+          <select class="form-control" id="setPrinterWidth">
+            <option value="58">Format Standard 58mm (32 colonnes)</option>
+            <option value="80">Grand Format 80mm (42 colonnes)</option>
+          </select>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+          <a href="https://apps.apple.com/app/bluetooth-thermal-printer-app/id1552684814" target="_blank" class="btn-main btn-secondary" style="margin:0; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            📥 Télécharger Thermer sur l'App Store
+          </a>
+          <button class="btn-main" id="btnTestThermerPrint" style="margin:0; background: #007AFF;">
+            🧪 Tester l'impression Thermer (Ticket Test Calibré)
+          </button>
+        </div>
+      </div>
+
+      <div class="card-group">
+        <h3 style="font-size: 16px; margin-bottom: 12px;">🛡️ Sécurité & Signature</h3>
+        <div class="form-group" style="display: flex; justify-content: space-between; align-items: center;">
+          <label style="margin:0;">Signature SYPOS MOBILE sur reçu</label>
+          <input type="checkbox" id="setShowSignature" style="transform: scale(1.3);">
+        </div>
+        <div class="form-group" style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
+          <label style="margin:0;">Appliquer la TVA (18%)</label>
+          <input type="checkbox" id="setTaxEnabled" style="transform: scale(1.3);">
+        </div>
+        <div class="form-group" style="margin-top: 12px;">
+          <label>Code PIN Admin (par défaut: 1234)</label>
+          <input type="password" class="form-control" id="setAdminPin" maxlength="4">
+        </div>
+      </div>
+
+      <div class="card-group" style="border-left: 4px solid var(--primary);">
+        <h3 style="font-size: 16px; margin-bottom: 8px;">🔑 Statut de la Licence Commerciale</h3>
+        <div style="font-size: 13px; margin-bottom: 6px;">ID Appareil : <strong id="settingsDevId" style="font-family: 'JetBrains Mono', monospace; color: var(--primary);">SYPOS-DEV-XXXX-YYYY</strong></div>
+        <div style="font-size: 13px; margin-bottom: 12px;">État : <span id="settingsLicenseStatusBadge" style="padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 11px; background: #e8f5e9; color: #2e7d32;">Actif</span></div>
+        <button class="btn-main btn-secondary" id="btnOpenLicenseModal" style="margin:0; font-size: 14px; height: 42px;">📋 Gérer / Renouveler la Licence</button>
+      </div>
+
+      <button class="btn-main" id="btnSaveSettings">💾 Enregistrer les Modifications</button>
+    </section>
+
+  </main>
+
+  <!-- Floating Cart Bar (Visible on POS tab when cart has items) -->
+  <div class="cart-floating-bar" id="floatingCartBar" style="display:none;">
+    <div>🛒 <span id="floatCartCount">0</span> article(s)</div>
+    <div style="font-weight:700;"><span id="floatCartTotal">0</span> CFA ➔</div>
+  </div>
+
+  <!-- Bottom Navigation Bar -->
+  <nav class="app-tabbar">
+    <a class="tab-item active" data-tab="pos">
+      <span class="tab-icon">🛍️</span>
+      <span>Caisse</span>
+    </a>
+    <a class="tab-item" data-tab="products">
+      <span class="tab-icon">📦</span>
+      <span>Catalogue</span>
+    </a>
+    <a class="tab-item" data-tab="history">
+      <span class="tab-icon">🕒</span>
+      <span>Historique</span>
+    </a>
+    <a class="tab-item" data-tab="reports">
+      <span class="tab-icon">📊</span>
+      <span>Bilan</span>
+    </a>
+    <a class="tab-item" data-tab="customers">
+      <span class="tab-icon">👥</span>
+      <span>Clients</span>
+    </a>
+    <a class="tab-item" data-tab="tools">
+      <span class="tab-icon">🏷️</span>
+      <span>Outils</span>
+    </a>
+    <a class="tab-item" data-tab="settings">
+      <span class="tab-icon">⚙️</span>
+      <span>Paramètres</span>
+    </a>
+  </nav>
+
+  <!-- MODAL: CART SHEET -->
+  <div class="modal-overlay" id="modalCart">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title">🛒 Panier en Cours</div>
+        <button class="icon-btn close-modal">✕</button>
+      </div>
+      <div class="sheet-content">
+        <div id="cartItemsList"></div>
+
+        <div style="margin-top: 14px;">
+          <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <input type="text" class="form-control" id="cartPromoInput" placeholder="Code promo (ex: SOLDES10)">
+            <button class="btn-main" id="btnApplyPromo" style="width: auto; height: 44px; margin: 0; padding: 0 14px;">Appliquer</button>
+          </div>
+          <div id="cartPromoBadge" style="display:none; color: var(--success); font-size: 13px; font-weight: 600; margin-bottom: 8px;"></div>
+        </div>
+
+        <div class="receipt-divider"></div>
+
+        <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 4px;">
+          <span>Sous-total :</span>
+          <span id="cartSubtotalText">0 CFA</span>
+        </div>
+        <div id="cartTaxRow" style="display:none; justify-content: space-between; font-size: 13px; color: var(--text-muted); margin-bottom: 4px;">
+          <span>TVA (18%) :</span>
+          <span id="cartTaxText">0 CFA</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 18px; font-weight: 700; color: var(--primary); margin-top: 6px;">
+          <span>TOTAL :</span>
+          <span id="cartTotalText">0 CFA</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px;">
+          <button class="btn-main btn-secondary" id="btnHoldCurrentSale" style="margin:0; background: #fff3e0; color: var(--warning);">⏸️ Mettre en Attente</button>
+          <button class="btn-main" id="btnGoToCheckout" style="margin:0;">💳 Encaisser</button>
+        </div>
+        <button class="btn-main btn-danger" id="btnClearCartBtn" style="margin-top: 10px;">🗑️ Vider le Panier</button>
+      </div>
     </div>
-    <div class="nav-actions">
-        <button class="btn-action" onclick="exportHistoryCsv()" style="background: var(--surface-hover); color: var(--text-main);">
-            📥 Exporter CSV
+  </div>
+
+  <!-- MODAL: PAYMENT / ENCAISSEMENT -->
+  <div class="modal-overlay" id="modalPayment">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title">💳 Règlement de la Vente</div>
+        <button class="icon-btn close-modal">✕</button>
+      </div>
+      <div class="sheet-content">
+        <div style="text-align: center; margin-bottom: 14px;">
+          <div style="font-size: 13px; color: var(--text-muted);">Montant à payer</div>
+          <div id="payAmountDue" style="font-size: 26px; font-weight: 800; color: var(--primary);">0 CFA</div>
+        </div>
+
+        <div class="form-group">
+          <label>Mode de Règlement</label>
+          <select class="form-control" id="payPaymentMethod">
+            <option value="cash">💵 Espèces</option>
+            <option value="wave">🌊 Wave Mobile Money</option>
+            <option value="om">🟠 Orange Money</option>
+            <option value="momo">🟡 MTN MoMo</option>
+            <option value="card">💳 Carte Bancaire</option>
+            <option value="credit">📝 Crédit / Dette Client</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="payCustomerGroup" style="display:none;">
+          <label>Attribuer au Client</label>
+          <select class="form-control" id="payCustomerSelect">
+            <option value="">Sélectionner un client...</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="payCashReceivedGroup">
+          <label>Montant Reçu du Client (CFA)</label>
+          <input type="number" class="form-control" id="payCashReceivedInput" placeholder="Ex: 5000">
+        </div>
+
+        <div id="payChangeDueBox" style="display:none; background: #e8f5e9; padding: 12px; border-radius: 12px; text-align: center; margin-bottom: 14px;">
+          <div style="font-size: 12px; color: #2e7d32;">Monnaie à rendre</div>
+          <div id="payChangeDueAmount" style="font-size: 20px; font-weight: 800; color: #2e7d32;">0 CFA</div>
+        </div>
+
+        <button class="btn-main" id="btnConfirmPayment">✅ Valider la Vente</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: RECEIPT / REÇU DE VENTE -->
+  <div class="modal-overlay" id="modalReceipt">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title">🧾 Ticket de Caisse</div>
+        <button class="icon-btn close-modal">✕</button>
+      </div>
+      <div class="sheet-content">
+        <div class="receipt-paper" id="receiptPaperContent"></div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px;">
+          <button class="btn-main" id="btnPrintThermerBtn" style="margin:0; background: #007AFF;">🖨️ Thermer BLE</button>
+          <button class="btn-main" id="btnShareWhatsAppBtn" style="margin:0; background: #25D366;">💬 WhatsApp</button>
+        </div>
+        <button class="btn-main btn-secondary" id="btnPrintReceiptBtn" style="margin-top: 8px;">📄 Impression Standard / PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: CAMERA SCANNER -->
+  <div class="modal-overlay" id="modalScanner">
+    <div class="bottom-sheet" style="max-height: 90vh;">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title">📷 Scanner Code-Barres</div>
+        <button class="icon-btn close-modal" id="btnCloseScanner">✕</button>
+      </div>
+      <div class="sheet-content">
+        <div id="qr-reader" style="width: 100%; border-radius: 16px; overflow: hidden;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ADMIN PIN SECURITY -->
+  <div class="modal-overlay" id="modalPin">
+    <div class="bottom-sheet" style="max-width: 360px;">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title">🔒 Code PIN Requis</div>
+        <button class="icon-btn close-modal">✕</button>
+      </div>
+      <div class="sheet-content" style="text-align: center;">
+        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px;" id="pinActionDescription">Cette action nécessite le code PIN administrateur.</p>
+        <input type="password" class="form-control" id="pinInputCode" maxlength="4" placeholder="••••" style="text-align: center; font-size: 28px; letter-spacing: 12px;">
+        <button class="btn-main" id="btnSubmitPin" style="margin-top: 16px;">Déverrouiller</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: LICENSE ACTIVATION -->
+  <div class="modal-overlay" id="modalLicense" style="z-index: 300;">
+    <div class="bottom-sheet" style="max-height: 92vh;">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title" style="display: flex; align-items: center; gap: 8px;">
+          <span>🛡️</span> <span>Activation de Licence</span>
+        </div>
+        <button class="icon-btn close-modal" id="btnCloseLicenseModal">✕</button>
+      </div>
+      <div class="sheet-content">
+        <div style="background: var(--surface-variant); padding: 14px; border-radius: 14px; margin-bottom: 14px; text-align: center; border: 1px solid var(--border);">
+          <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Votre Identifiant Appareil</div>
+          <div id="licenseDialogDevId" style="font-size: 20px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--primary); margin: 6px 0; letter-spacing: 1px;">
+            SYPOS-DEV-XXXX-YYYY
+          </div>
+          <div style="display: flex; gap: 8px; justify-content: center; margin-top: 8px;">
+            <button class="btn-main btn-secondary" id="btnCopyDeviceId" style="margin:0; width: auto; height: 36px; padding: 0 12px; font-size: 12px;">
+              📋 Copier l'ID
+            </button>
+            <button class="btn-main" id="btnWhatsAppLicense" style="margin:0; width: auto; height: 36px; padding: 0 12px; font-size: 12px; background: #25D366;">
+              💬 Commander sur WhatsApp
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Clé de Licence Cryptographique (Format SYP1...)</label>
+          <textarea class="form-control" id="inputLicenseKey" rows="3" placeholder="Collez votre clé de licence ici (SYP1...)" style="height: 80px; font-family: 'JetBrains Mono', monospace; font-size: 12px; resize: none;"></textarea>
+        </div>
+
+        <div id="licenseFeedbackMsg" style="display: none; padding: 10px; border-radius: 10px; font-size: 13px; font-weight: 600; margin-bottom: 12px; text-align: center;"></div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <button class="btn-main btn-secondary" id="btnScanLicenseQr" style="margin:0;">📷 Scanner QR</button>
+          <button class="btn-main" id="btnValidateLicense" style="margin:0;">✅ Activer</button>
+        </div>
+
+        <button class="btn-main btn-secondary" id="btnDemoMode" style="margin-top: 10px; font-size: 13px; height: 40px; color: var(--text-muted);">
+          ▶️ Explorer l'application (Mode Démo / Essai)
         </button>
-        <button class="btn-action" onclick="logout()" style="background: rgba(239,68,68,0.15); color: #fca5a5;">
-            Déconnexion
-        </button>
+      </div>
     </div>
-</header>
+  </div>
 
-<main>
-    <!-- STATS ROW -->
-    <div class="stats-grid">
-        <div class="stat-box">
-            <div class="stat-lbl">TOTAL LICENCES</div>
-            <div class="stat-num" id="statTotal">0</div>
-        </div>
-        <div class="stat-box green">
-            <div class="stat-lbl">ILLIMITÉES (À VIE)</div>
-            <div class="stat-num" id="statLifetime">0</div>
-        </div>
-        <div class="stat-box">
-            <div class="stat-lbl">ANNUELLES (1 AN)</div>
-            <div class="stat-num" id="statAnnual">0</div>
-        </div>
-        <div class="stat-box amber">
-            <div class="stat-lbl">PÉRIODES D'ESSAI</div>
-            <div class="stat-num" id="statTrial">0</div>
-        </div>
-    </div>
-
-    <div class="grid-dashboard">
-        <!-- GENERATOR FORM -->
-        <div class="card">
-            <div class="card-header">
-                <div class="card-title">⚡ Émettre une Nouvelle Licence</div>
-            </div>
-
-            <form onsubmit="handleGenerate(event)">
-                <div class="form-group">
-                    <label for="inputDevId">📱 Device ID du Client (Empreinte Matérielle) *</label>
-                    <input type="text" id="inputDevId" placeholder="Ex: SYPOS-DEV-7A8B-49C2" required
-                           style="text-transform: uppercase; font-family: 'JetBrains Mono', monospace; font-weight: 700; letter-spacing: 1px;">
-                </div>
-
-                <div class="form-group">
-                    <label for="inputShop">🏪 Nom de la Boutique / Commerçant *</label>
-                    <input type="text" id="inputShop" placeholder="Ex: Boutique Mamadou - Marché Central" required>
-                </div>
-
-                <div class="form-group">
-                    <label for="inputPhone">💬 Numéro WhatsApp du Client (Optionnel)</label>
-                    <input type="tel" id="inputPhone" placeholder="Ex: +225 07 00 00 00 00">
-                </div>
-
-                <div class="form-group">
-                    <label>🏷️ Formule d'Activation</label>
-                    <div class="plans-grid">
-                        <div class="plan-btn active" onclick="selectPlan('LIFETIME', this)">
-                            <div class="plan-btn-title">Illimitée</div>
-                            <div class="plan-btn-sub">À Vie</div>
-                        </div>
-                        <div class="plan-btn" onclick="selectPlan('ANNUAL', this)">
-                            <div class="plan-btn-title">Annuelle</div>
-                            <div class="plan-btn-sub">1 An (365j)</div>
-                        </div>
-                        <div class="plan-btn" onclick="selectPlan('TRIAL', this)">
-                            <div class="plan-btn-title">Essai</div>
-                            <div class="plan-btn-sub">30 Jours</div>
-                        </div>
-                    </div>
-                </div>
-
-                <button type="submit" class="btn-primary" style="margin-top: 10px;">
-                    🔐 Signer & Générer la Licence
-                </button>
-            </form>
-
-            <!-- RESULT DISPLAY -->
-            <div class="output-card" id="outputCard">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <span style="color: #4ade80; font-weight: 700; font-size: 14px;">✅ Licence Signée avec Succès</span>
-                    <span class="badge-pill badge-lifetime" id="resPlanBadge">Illimitée</span>
-                </div>
-
-                <div class="qr-wrapper">
-                    <div id="qrCodeContainer"></div>
-                    <div style="font-size: 12px; line-height: 1.5; color: var(--text-muted);">
-                        <strong style="color: var(--text-main); display: block; margin-bottom: 4px;">QR Code d'Activation</strong>
-                        Scannable directement dans SYPOS Mobile via l'appareil photo.
-                    </div>
-                </div>
-
-                <div class="token-box" id="resTokenText"></div>
-
-                <div class="actions-grid">
-                    <button class="btn-action btn-copy" onclick="copyToken()">📋 Copier la Clé</button>
-                    <button class="btn-action btn-whatsapp" onclick="sendWhatsApp()">💬 WhatsApp</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- HISTORY PANEL -->
-        <div class="card">
-            <div class="card-header">
-                <div class="card-title">📜 Registre des Licences Émises</div>
-                <input type="text" id="searchBox" placeholder="🔍 Rechercher..." oninput="renderHistory()" style="width: 140px; padding: 6px 10px; font-size: 12px;">
-            </div>
-
-            <div class="table-responsive">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Boutique & ID</th>
-                            <th>Formule</th>
-                            <th>Date / Validité</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="historyTableBody">
-                        <!-- Rows injected here -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-</main>
-
-<div class="toast" id="toastMsg">✅ Copié dans le presse-papier !</div>
-
-<script>
-    // Embedded RSA-2048 Private Key (PKCS#1) for client-side cryptographic signing
-    const PRIVATE_KEY_PEM = `-----BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEAy4fzpl4lsQkScqSwHrAxCiUEndXd1Kop9u/kKdGtxmvvJzxD
-15KN71TJ8ZVw/ds749Pz3yCdzlU7io5fDshuVLYNVCXIpOJUtjGdtxVNCv9l0+bp
-AUKLZpPEHGgyXlDGbVE8G6bOQXXt57CoFdTQiGm7iBuQ2jcI6tW2Y0BZztforF57
-YX133ls9Eex5aM7pjzQcY31hrlLDKN3+1CD+/XFSfPw5WfcLlOYm0x6FzFkFhG6s
-5qSNB1cfQ5yjScXvHGXoRa5Eo/MH4BXkU2vTIZS5Y4+gqdc4T6drGyzQ2uUUtsII
-8zNSh0gRZAja452p4EuwpyrcgcopZG497gHp5QIDAQABAoIBAQDCHWrjLH3USCvB
-DZMv4akT3NR3WKdWkeiuLIO24tVTHlQcXpzxuEQIlBx6faYjZ3nKQ7cfArOfO6kq
-77h3l++qeWti6xpfL8HNdqrOF9HAAG/01xE5c2cSsTHkSfhn/bASSN0EHmYvBrOd
-Ot5E3BD7WaRTHr9bcAvgNW3bYV+GJq5hlcFpAPvxJMcvQ1QRtk/at93u2xmm1DL1
-mRIwH9eSuPFeolKgcA7wc+E6W95/Tqk4X8QbHiSj6wJmYhwh+lsDh3ZLjYMNWV9O
-+cIq9OncUc9QaFuZX3qy1DpoeCi0OVYUE4XGe4Vf3ha/UBfgA5jyTpSh0EVWQ6lX
-9AUyASnNAoGBAP2H7VNIKOiN3UNB2zht347z1mfyFVdxXmbp/w9Om/To+UyIVngT
-yKbVfYJDaQDs4g+025qt+KQPskIIIgN+bxOoit4fd/hV1bTEfiWkUlLLzDLboWSv
-FDke8AfZzI72GylQCjimrXCD6D/hxvmcdg9g+v483QMzqfU/KKMtR43DAoGBAM2D
-XvazuBr45BJHt11gFpzbvjI8CRq1BAPN8eEFpxV2r18ufe6DBx9o8ynywA2+1oGH
-zELcr5B52/EFYZsQPSDVbt2PQ0ZXp93C4VXXDGh/UJTGW7H5DbGDvXLGbga+EGJk
-IIlZfRklxJHFM6aeibxo7iKEKy2pW14Ggf+pc2c3AoGAYz0ym3fSc30cT/hWTBdN
-+9HcaiGrUugQcK5FZYN6rnoHI3r2hdgQoaVNlJC4aGFQ957umvRgMC/osconLkDu
-T76YZOvidPV8Sl7jle5lPv2A96Na4GNbwiQnBputY4RYC2rGJXiwySsI3QCOdyRU
-Xh6zAJNoW5l8fH/1czIFISsCgYA0AGTcGdehA496TKlKOFEgeb3jqitHlbwhVlA4
-9xwzIyf29qWo34DC4uR8nc8Y60wN1JXL6VmHPj53+zuaZ/5/u2HlMCX+u5lfVLt9
-4/9gxa5XJuX236UmYMZkL2+RxzAQJXPSLVGpNlRJ6lNKet0xTn/LPhRK5oqW/SCR
-14e6+wKBgQCpEigeuJwaeTUYF6bdtMr0fziG2j3ykVCGW4Vhg4PlT9E0N3Pk74bB
-QiyFhyjEsAv+efK7Xa9oyLWl61ZoiUxtz3YWUE88Lh6SAgtrwRNSC7ylz7HUZFcD
-QPOVK4+zglaLUWQ3vLXBKmIFxQdcw3HtuwA/8z8fF9jlBRxcr7egNw==
------END RSA PRIVATE KEY-----`;
-
-    let activePlan = 'LIFETIME';
-    let currentLicense = null;
-    let qrInstance = null;
-
-    // --- AUTHENTICATION ---
-    function handleLogin(e) {
-        e.preventDefault();
-        const pass = document.getElementById('adminPass').value;
-        if (pass === 'sypos2026' || pass === 'admin' || pass === '0758245530') {
-            document.getElementById('loginScreen').style.display = 'none';
-            sessionStorage.setItem('sypos_auth', '1');
-            loadInitialData();
-        } else {
-            alert('❌ Mot de passe administrateur incorrect.');
-        }
-    }
-
-    function logout() {
-        sessionStorage.removeItem('sypos_auth');
-        document.getElementById('loginScreen').style.display = 'flex';
-    }
-
-    if (sessionStorage.getItem('sypos_auth') === '1') {
-        document.getElementById('loginScreen').style.display = 'none';
-    }
-
-    // --- PLAN SELECTION ---
-    function selectPlan(plan, el) {
-        activePlan = plan;
-        document.querySelectorAll('.plan-btn').forEach(b => b.classList.remove('active'));
-        el.classList.add('active');
-    }
-
-    // --- CRYPTO SIGNING ---
-    function base64UrlEncode(bytes) {
-        return forge.util.encode64(bytes)
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=+$/, '');
-    }
-
-    function generateCryptographicLicense(devId, shop, plan) {
-        const now = Date.now();
-        let exp = 0;
-        let planLabel = "Licence Définitive (À Vie)";
-
-        if (plan === 'ANNUAL') {
-            exp = now + (365 * 24 * 3600 * 1000);
-            planLabel = "Licence Annuelle (1 An)";
-        } else if (plan === 'TRIAL') {
-            exp = now + (30 * 24 * 3600 * 1000);
-            planLabel = "Licence Essai (30 Jours)";
-        }
-
-        const payloadObj = {
-            devId: devId.trim().toUpperCase(),
-            shop: shop.trim(),
-            plan: plan,
-            exp: exp,
-            iat: now,
-            v: 1
-        };
-
-        const payloadJson = JSON.stringify(payloadObj);
-        const payloadBytes = forge.util.encodeUtf8(payloadJson);
-        const payloadB64 = base64UrlEncode(payloadBytes);
-
-        // Sign with RSA-2048 private key (PKCS#1 v1.5 + SHA256)
-        const privateKey = forge.pki.privateKeyFromPem(PRIVATE_KEY_PEM);
-        const md = forge.md.sha256.create();
-        md.update(payloadBytes, 'utf8');
-        const signatureBytes = privateKey.sign(md);
-        const sigB64 = base64UrlEncode(signatureBytes);
-
-        const token = `SYP1.${payloadB64}.${sigB64}`;
-
-        return {
-            token: token,
-            devId: payloadObj.devId,
-            shop: payloadObj.shop,
-            plan: plan,
-            planLabel: planLabel,
-            exp: exp,
-            iat: now,
-            expStr: exp === 0 ? "Illimitée (À Vie)" : new Date(exp).toLocaleDateString('fr-FR')
-        };
-    }
-
-    // --- FORM SUBMISSION ---
-    function handleGenerate(e) {
-        e.preventDefault();
-        const devId = document.getElementById('inputDevId').value.trim().toUpperCase();
-        const shop = document.getElementById('inputShop').value.trim();
-        const phone = document.getElementById('inputPhone').value.trim();
-
-        if (!devId) {
-            alert('Veuillez saisir un Device ID valide');
-            return;
-        }
-
-        try {
-            const lic = generateCryptographicLicense(devId, shop, activePlan);
-            lic.phone = phone;
-            currentLicense = lic;
-
-            // Render Output
-            document.getElementById('outputCard').style.display = 'block';
-            document.getElementById('resTokenText').innerText = lic.token;
-            document.getElementById('resPlanBadge').innerText = lic.planLabel;
-
-            // Render QR Code
-            const qrBox = document.getElementById('qrCodeContainer');
-            qrBox.innerHTML = '';
-            qrInstance = new QRCode(qrBox, {
-                text: lic.token,
-                width: 130,
-                height: 130,
-                colorDark: "#000000",
-                colorLight: "#ffffff",
-                correctLevel: QRCode.CorrectLevel.M
-            });
-
-            // Save to Local History
-            saveToHistory(lic);
-            renderHistory();
-            showToast('✅ Licence générée avec succès !');
-        } catch (err) {
-            console.error(err);
-            alert('Erreur de signature cryptographique: ' + err.message);
-        }
-    }
-
-    // --- ACTIONS ---
-    function copyToken() {
-        if (!currentLicense) return;
-        navigator.clipboard.writeText(currentLicense.token);
-        showToast('📋 Clé de licence copiée !');
-    }
-
-    function sendWhatsApp() {
-        if (!currentLicense) return;
-        const lic = currentLicense;
-        const msg = `✨ *ACTIVATION SYPOS MOBILE* ✨\n\nBonjour ${lic.shop},\nVoici votre clé d'activation officielle pour SYPOS Mobile :\n\n📱 *Appareil :* \`${lic.devId}\`\n🏷️ *Formule :* ${lic.planLabel}\n⏳ *Validité :* ${lic.expStr}\n\n🔑 *VOTRE CLÉ D'ACTIVATION :*\n\`\`\`${lic.token}\`\`\`\n\n👉 *Pour activer :*\n1. Ouvrez SYPOS Mobile\n2. Cliquez sur *Activer ma licence*\n3. Collez la clé ci-dessus ou scannez le QR Code reçu.\n4. Cliquez sur *Valider*. Votre caisse est prête !\n\n_Assistance & Support SYPOS Mobile_`;
-
-        let url = `https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
-        if (lic.phone) {
-            const cleanPhone = lic.phone.replace(/[^0-9]/g, '');
-            url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`;
-        }
-        window.open(url, '_blank');
-    }
-
-    // --- STORAGE & HISTORY ---
-    function getHistory() {
-        try {
-            return JSON.parse(localStorage.getItem('sypos_license_history') || '[]');
-        } catch (e) {
-            return [];
-        }
-    }
-
-    function saveToHistory(lic) {
-        let list = getHistory();
-        list = list.filter(item => item.token !== lic.token);
-        list.unshift(lic);
-        localStorage.setItem('sypos_license_history', JSON.stringify(list));
-        updateStats(list);
-    }
-
-    function renderHistory() {
-        const query = (document.getElementById('searchBox').value || '').toLowerCase();
-        const list = getHistory();
-        const tbody = document.getElementById('historyTableBody');
-        tbody.innerHTML = '';
-
-        const filtered = list.filter(item => 
-            item.shop.toLowerCase().includes(query) || 
-            item.devId.toLowerCase().includes(query)
-        );
-
-        if (filtered.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 20px;">Aucune licence enregistrée</td></tr>`;
-            return;
-        }
-
-        filtered.forEach(item => {
-            const tr = document.createElement('tr');
-            const badgeClass = item.plan === 'LIFETIME' ? 'badge-lifetime' : (item.plan === 'ANNUAL' ? 'badge-annual' : 'badge-trial');
-            tr.innerHTML = `
-                <td>
-                    <div style="font-weight: 700;">${item.shop}</div>
-                    <div style="font-family: monospace; font-size: 11px; color: var(--text-muted);">${item.devId}</div>
-                </td>
-                <td><span class="badge-pill ${badgeClass}">${item.planLabel}</span></td>
-                <td>
-                    <div style="font-size: 12px;">${item.expStr}</div>
-                </td>
-                <td>
-                    <button onclick="restoreLicense('${item.token}')" style="background: #1e293b; border: 1px solid var(--border); color: #cbd5e1; padding: 4px 8px; border-radius: 6px; font-size: 11px; cursor: pointer;">
-                        Afficher
-                    </button>
-                </td>
-            `;
-            tbody.appendChild(tr);
-        });
-
-        updateStats(list);
-    }
-
-    function restoreLicense(token) {
-        const list = getHistory();
-        const lic = list.find(l => l.token === token);
-        if (!lic) return;
-        currentLicense = lic;
-
-        document.getElementById('outputCard').style.display = 'block';
-        document.getElementById('resTokenText').innerText = lic.token;
-        document.getElementById('resPlanBadge').innerText = lic.planLabel;
-
-        const qrBox = document.getElementById('qrCodeContainer');
-        qrBox.innerHTML = '';
-        new QRCode(qrBox, {
-            text: lic.token,
-            width: 130,
-            height: 130,
-            colorDark: "#000000",
-            colorLight: "#ffffff",
-            correctLevel: QRCode.CorrectLevel.M
-        });
-
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-
-    function updateStats(list) {
-        document.getElementById('statTotal').innerText = list.length;
-        document.getElementById('statLifetime').innerText = list.filter(l => l.plan === 'LIFETIME').length;
-        document.getElementById('statAnnual').innerText = list.filter(l => l.plan === 'ANNUAL').length;
-        document.getElementById('statTrial').innerText = list.filter(l => l.plan === 'TRIAL').length;
-    }
-
-    function exportHistoryCsv() {
-        const list = getHistory();
-        if (list.length === 0) {
-            alert("Aucune licence à exporter.");
-            return;
-        }
-        let csv = "DeviceID,Boutique,Formule,Date_Expiration,Token\n";
-        list.forEach(l => {
-            csv += `"${l.devId}","${l.shop}","${l.plan}","${l.expStr}","${l.token}"\n`;
-        });
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `SYPOS_Licences_${new Date().toISOString().slice(0,10)}.csv`;
-        link.click();
-    }
-
-    function showToast(msg) {
-        const toast = document.getElementById('toastMsg');
-        toast.innerText = msg;
-        toast.style.display = 'block';
-        setTimeout(() => { toast.style.display = 'none'; }, 2500);
-    }
-
-    function loadInitialData() {
-        renderHistory();
-    }
-
-    window.onload = function() {
-        if (sessionStorage.getItem('sypos_auth') === '1') {
-            loadInitialData();
-        }
-    };
-</script>
-
+  <!-- Scripts -->
+  <script src="app.js"></script>
 </body>
 </html>
