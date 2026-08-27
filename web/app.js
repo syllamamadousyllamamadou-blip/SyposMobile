@@ -850,31 +850,51 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 1200);
   }
 
-  // Button Thermer in Receipt Modal
-  document.getElementById('btnPrintThermerBtn').addEventListener('click', () => {
-    if (STATE.tickets.length === 0) return;
-    sendToThermerApp(STATE.tickets[0]);
-  });
-
-  // Test Thermer Button in Settings
-  const btnTestThermer = document.getElementById('btnTestThermerPrint');
-  if (btnTestThermer) {
-    btnTestThermer.addEventListener('click', () => {
-      const dummyTicket = {
-        number: 'TEST-' + Math.floor(1000 + Math.random() * 9000),
-        date: Date.now(),
-        items: [
-          { productName: 'Article Test 1', qty: 1, price: 1500 },
-          { productName: 'Article Test 2', qty: 2, price: 2500 }
-        ],
-        totalAmount: 6500,
-        paymentMethod: 'cash'
-      };
-      sendToThermerApp(dummyTicket);
+  // Direct Bluetooth ESC/POS Print button (Works with Web Bluetooth / Bluefy Browser / Chrome)
+  const btnBleDirect = document.getElementById('btnPrintBleDirectBtn');
+  if (btnBleDirect) {
+    btnBleDirect.addEventListener('click', async () => {
+      if (STATE.tickets.length === 0) return;
+      const t = STATE.tickets[0];
+      const plainText = generateReceiptPlainText(t);
+      if (!STATE.bleCharacteristic) {
+        await connectBluetoothPrinter();
+      }
+      if (STATE.bleCharacteristic) {
+        const encoder = new TextEncoder();
+        const rawBytes = encoder.encode(plainText);
+        await sendToPrinter(rawBytes);
+        alert("✅ Ticket envoyé à l'imprimante Bluetooth !");
+      }
     });
   }
 
-  // Print Receipt Button (Standard / PDF)
+  // Share Sheet / Vers App Thermer / RawBT
+  const btnShareApp = document.getElementById('btnSharePrinterAppBtn');
+  if (btnShareApp) {
+    btnShareApp.addEventListener('click', () => {
+      if (STATE.tickets.length === 0) return;
+      const t = STATE.tickets[0];
+      const plainText = generateReceiptPlainText(t);
+      
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(plainText).catch(() => {});
+      }
+
+      if (navigator.share) {
+        navigator.share({
+          title: 'Ticket ' + t.number,
+          text: plainText
+        }).catch(() => {
+          window.location.href = "thermer://";
+        });
+      } else {
+        window.location.href = "thermer://";
+      }
+    });
+  }
+
+  // Print Receipt Button (Standard / AirPrint / PDF)
   document.getElementById('btnPrintReceiptBtn').addEventListener('click', () => {
     window.print();
   });

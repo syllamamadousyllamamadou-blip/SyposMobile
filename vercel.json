@@ -3,24 +3,8 @@
   "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/",
-      "destination": "/web/index.html"
-    },
-    {
-      "source": "/pos",
-      "destination": "/web/index.html"
-    },
-    {
-      "source": "/app",
-      "destination": "/web/index.html"
-    },
-    {
-      "source": "/web",
-      "destination": "/web/index.html"
-    },
-    {
-      "source": "/web/(.*)",
-      "destination": "/web/$1"
+      "source": "/admin",
+      "destination": "/license-portal/index.html"
     },
     {
       "source": "/license-portal",
@@ -29,11 +13,27 @@
     {
       "source": "/license-portal/(.*)",
       "destination": "/license-portal/$1"
+    },
+    {
+      "source": "/pos",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/app",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/web",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/web/(.*)",
+      "destination": "/$1"
     }
   ],
   "headers": [
     {
-      "source": "/web/service-worker.js",
+      "source": "/service-worker.js",
       "headers": [
         {
           "key": "Cache-Control",
@@ -46,7 +46,7 @@
       ]
     },
     {
-      "source": "/web/manifest.json",
+      "source": "/manifest.json",
       "headers": [
         {
           "key": "Cache-Control",
