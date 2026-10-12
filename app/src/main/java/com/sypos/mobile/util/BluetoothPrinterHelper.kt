@@ -42,7 +42,8 @@ data class ZReportData(
     val moovSales: Double,
     val cardSales: Double,
     val creditSales: Double,
-    val netCashInDrawer: Double
+    val netCashInDrawer: Double,
+    val totalPurchaseCost: Double = 0.0
 )
 
 data class DeliveryNoteData(
@@ -106,7 +107,7 @@ object BluetoothPrinterHelper {
     suspend fun testPrinter(
         context: Context,
         deviceAddress: String,
-        shopName: String = "SYPOS MOBILE"
+        shopName: String = "KAYO"
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
         val adapter = bluetoothManager?.adapter ?: BluetoothAdapter.getDefaultAdapter()
@@ -132,7 +133,7 @@ object BluetoothPrinterHelper {
             out.write(BOLD_OFF)
             out.write(cleanText("--------------------------------\n"))
             out.write(cleanText("TEST D'IMPRESSION REUSSI !\n"))
-            out.write(cleanText("SYPOS POS Mobile - Version Pro\n"))
+            out.write(cleanText("KAYO POS Mobile\n"))
             out.write(cleanText("Date : ${SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE).format(Date())}\n"))
             out.write(cleanText("--------------------------------\n"))
             out.write(FEED_PAPER)
@@ -231,7 +232,7 @@ object BluetoothPrinterHelper {
             out.write(ALIGN_CENTER)
             out.write(BOLD_ON)
             out.write(DOUBLE_HEIGHT_ON)
-            out.write(cleanText("${settings.shopName.ifBlank { "SYPOS COMMERCE" }}\n"))
+            out.write(cleanText("${settings.shopName.ifBlank { "KAYO COMMERCE" }}\n"))
             out.write(DOUBLE_OFF)
             out.write(BOLD_OFF)
 
@@ -301,21 +302,51 @@ object BluetoothPrinterHelper {
 
             // Payment Details
             if (ticket.paymentMethod != null) {
-                val methodLabel = when (ticket.paymentMethod) {
-                    com.sypos.mobile.data.local.entity.PaymentMethod.CASH -> "Especes (Cash)"
-                    com.sypos.mobile.data.local.entity.PaymentMethod.WAVE -> "Wave"
-                    com.sypos.mobile.data.local.entity.PaymentMethod.ORANGE_MONEY -> "Orange Money"
-                    com.sypos.mobile.data.local.entity.PaymentMethod.MTN -> "MTN Mobile Money"
-                    com.sypos.mobile.data.local.entity.PaymentMethod.MOOV -> "Moov Money"
-                    com.sypos.mobile.data.local.entity.PaymentMethod.CARD -> "Carte Bancaire"
-                    com.sypos.mobile.data.local.entity.PaymentMethod.CREDIT -> "Vente a Credit"
-                }
-                out.write(cleanText(formatTwoColumns("Mode Paiement", methodLabel, 32) + "\n"))
-
-                if (ticket.paymentMethod == com.sypos.mobile.data.local.entity.PaymentMethod.CASH && ticket.amountPaid > 0) {
-                    out.write(cleanText(formatTwoColumns("Montant Recu", formatMoney(ticket.amountPaid), 32) + "\n"))
+                if (ticket.paymentMethod == com.sypos.mobile.data.local.entity.PaymentMethod.SPLIT) {
+                    out.write(cleanText(formatTwoColumns("Paiement Fractionne", "", 32) + "\n"))
+                    if (ticket.splitCashAmount != null && ticket.splitCashAmount > 0) {
+                        out.write(cleanText(formatTwoColumns(" - Especes", formatMoney(ticket.splitCashAmount), 32) + "\n"))
+                    }
+                    if (ticket.splitOtherAmount != null && ticket.splitOtherAmount > 0 && ticket.splitOtherMethod != null) {
+                        val otherMethodName = when (ticket.splitOtherMethod) {
+                            com.sypos.mobile.data.local.entity.PaymentMethod.WAVE -> "Wave"
+                            com.sypos.mobile.data.local.entity.PaymentMethod.ORANGE_MONEY -> "Orange Money"
+                            com.sypos.mobile.data.local.entity.PaymentMethod.MTN -> "MTN MoMo"
+                            com.sypos.mobile.data.local.entity.PaymentMethod.MOOV -> "Moov Money"
+                            com.sypos.mobile.data.local.entity.PaymentMethod.CARD -> "Carte"
+                            else -> "Autre"
+                        }
+                        out.write(cleanText(formatTwoColumns(" - $otherMethodName", formatMoney(ticket.splitOtherAmount), 32) + "\n"))
+                    }
                     if (ticket.changeReturned > 0) {
                         out.write(cleanText(formatTwoColumns("Monnaie Rendue", formatMoney(ticket.changeReturned), 32) + "\n"))
+                    }
+                } else if (ticket.paymentMethod == com.sypos.mobile.data.local.entity.PaymentMethod.CREDIT) {
+                    out.write(cleanText(formatTwoColumns("Mode Paiement", "A Credit", 32) + "\n"))
+                    if (ticket.amountPaid > 0) {
+                        out.write(cleanText(formatTwoColumns("Acompte Paye", formatMoney(ticket.amountPaid), 32) + "\n"))
+                    }
+                    val restToPay = ticket.totalAmount - ticket.amountPaid
+                    if (restToPay > 0) {
+                        out.write(cleanText(formatTwoColumns("Reste a Payer", formatMoney(restToPay), 32) + "\n"))
+                    }
+                } else {
+                    val methodLabel = when (ticket.paymentMethod) {
+                        com.sypos.mobile.data.local.entity.PaymentMethod.CASH -> "Especes (Cash)"
+                        com.sypos.mobile.data.local.entity.PaymentMethod.WAVE -> "Wave"
+                        com.sypos.mobile.data.local.entity.PaymentMethod.ORANGE_MONEY -> "Orange Money"
+                        com.sypos.mobile.data.local.entity.PaymentMethod.MTN -> "MTN Mobile Money"
+                        com.sypos.mobile.data.local.entity.PaymentMethod.MOOV -> "Moov Money"
+                        com.sypos.mobile.data.local.entity.PaymentMethod.CARD -> "Carte Bancaire"
+                        else -> "Inconnu"
+                    }
+                    out.write(cleanText(formatTwoColumns("Mode Paiement", methodLabel, 32) + "\n"))
+    
+                    if (ticket.paymentMethod == com.sypos.mobile.data.local.entity.PaymentMethod.CASH && ticket.amountPaid > 0) {
+                        out.write(cleanText(formatTwoColumns("Montant Recu", formatMoney(ticket.amountPaid), 32) + "\n"))
+                        if (ticket.changeReturned > 0) {
+                            out.write(cleanText(formatTwoColumns("Monnaie Rendue", formatMoney(ticket.changeReturned), 32) + "\n"))
+                        }
                     }
                 }
             }
@@ -331,7 +362,7 @@ object BluetoothPrinterHelper {
             // Publisher Signature if enabled: Compact single-line small font
             if (settings.showPublisherSignature) {
                 out.write(FONT_SMALL)
-                out.write(cleanText("Solution: SYPOS MOBILE 0758245530\n"))
+                out.write(cleanText("Solution: KAYO 0758245530\n"))
                 out.write(FONT_NORMAL)
             }
 
@@ -473,7 +504,7 @@ object BluetoothPrinterHelper {
             out.write(DOUBLE_OFF)
             out.write(BOLD_OFF)
 
-            out.write(cleanText("${settings.shopName.ifBlank { "SYPOS COMMERCE" }}\n"))
+            out.write(cleanText("${settings.shopName.ifBlank { "KAYO COMMERCE" }}\n"))
             out.write(cleanText("Date de cloture: ${zData.dateText}\n"))
             if (settings.sellerName.isNotBlank()) {
                 out.write(cleanText("Responsable: ${settings.sellerName}\n"))
@@ -489,6 +520,12 @@ object BluetoothPrinterHelper {
             if (zData.totalExpenses > 0) {
                 out.write(cleanText(formatTwoColumns("Total Depenses/Sorties", "-${formatMoney(zData.totalExpenses)}", 32) + "\n"))
             }
+            
+            val benefice = zData.totalSales - zData.totalPurchaseCost - zData.totalExpenses
+            out.write(cleanText("--------------------------------\n"))
+            out.write(BOLD_ON)
+            out.write(cleanText(formatTwoColumns("BENEFICE NET", formatMoney(benefice), 32) + "\n"))
+            out.write(BOLD_OFF)
 
             out.write(cleanText("--------------------------------\n"))
             out.write(cleanText("Ventilation Encaissements:\n"))

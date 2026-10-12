@@ -1,7 +1,6 @@
 package com.sypos.mobile.ui.navigation
 
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
@@ -12,6 +11,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -24,6 +25,7 @@ import androidx.navigation.navArgument
 import com.sypos.mobile.data.local.UserRole
 import com.sypos.mobile.ui.auth.PinAuthDialog
 import com.sypos.mobile.ui.auth.PinLockScreen
+import com.sypos.mobile.ui.auth.AuthScreen
 import com.sypos.mobile.ui.customer.CustomerListScreen
 import com.sypos.mobile.ui.history.HistoryScreen
 import com.sypos.mobile.ui.pos.PosScreen
@@ -34,6 +36,9 @@ import com.sypos.mobile.ui.report.ReportScreen
 import com.sypos.mobile.ui.settings.SettingsScreen
 import com.sypos.mobile.ui.settings.SettingsViewModel
 import com.sypos.mobile.ui.tools.ToolsScreen
+import com.google.firebase.auth.FirebaseAuth
+import com.sypos.mobile.data.remote.CloudAuthManager
+import kotlinx.coroutines.launch
 
 sealed class BottomNavItem(
     val route: String,
@@ -42,7 +47,7 @@ sealed class BottomNavItem(
     val unselectedIcon: ImageVector
 ) {
     object Pos : BottomNavItem("pos", "Caisse", Icons.Filled.PointOfSale, Icons.Outlined.PointOfSale)
-    object Products : BottomNavItem("products", "Catalogue", Icons.Filled.Inventory2, Icons.Outlined.Inventory2)
+    object Products : BottomNavItem("products", "Articles", Icons.Filled.Inventory2, Icons.Outlined.Inventory2)
     object History : BottomNavItem("history", "Ventes", Icons.AutoMirrored.Filled.ReceiptLong, Icons.AutoMirrored.Outlined.ReceiptLong)
     object Tools : BottomNavItem("tools", "Outils", Icons.Filled.Build, Icons.Outlined.Build)
     object Customers : BottomNavItem("customers", "Clients", Icons.Filled.People, Icons.Outlined.PeopleOutline)
@@ -58,37 +63,94 @@ fun SyposNavigation(
     var isAppUnlocked by remember(settings.pinLockEnabled) { mutableStateOf(!settings.pinLockEnabled) }
     var pendingAdminRoute by remember { mutableStateOf<String?>(null) }
     var showAdminPinDialog by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    var isCheckingAuth by remember { mutableStateOf(true) }
+    var authError by remember { mutableStateOf<String?>(null) }
+    var isAuthenticated by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        settingsViewModel.updateLastKnownTimestamp()
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            isCheckingAuth = false
+            isAuthenticated = false
+        } else {
+            val status = CloudAuthManager().verifyAndRegisterDevice(context, null, null)
+            if (status.isValid) {
+                isAuthenticated = true
+                if (status.shopId.isNotBlank()) {
+                    settingsViewModel.setCurrentShopId(status.shopId)
+                    settingsViewModel.startCloudSync(status.shopId)
+                }
+                
+                // Real-time listener for blocking and expiry
+                com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                    .collection("users").document(user.uid)
+                    .addSnapshotListener { snapshot, error -> 
+                        if (error == null && snapshot != null) {
+                            val plan = snapshot.getString("plan")
+                            val expiry = snapshot.getLong("expiry") ?: 0L
+                            
+                            if (plan == "BLOCKED") {
+                                isAuthenticated = false
+                                authError = "Accès révoqué ou bloqué par l'administrateur. Veuillez contacter KAYO au +2250758245530."
+                                FirebaseAuth.getInstance().signOut()
+                            } else if (plan != "LIFETIME" && expiry > 0 && System.currentTimeMillis() > expiry) {
+                                isAuthenticated = false
+                                authError = "Votre abonnement (ou période d'essai) a expiré. Veuillez contacter le développeur (KAYO) au +2250758245530 pour le renouveler."
+                                FirebaseAuth.getInstance().signOut()
+                            }
+                        }
+                    }
+            } else {
+                authError = status.message
+            }
+            isCheckingAuth = false
+        }
     }
 
-    val isClockFraud = com.sypos.mobile.util.LicenseManager.isClockTampered(settings.lastKnownTimestamp)
-    if (isClockFraud) {
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text("Anomalie Horloge Système", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
-            text = {
-                Text("L'heure de votre téléphone semble avoir été reculée. Pour des raisons de sécurité de vos rapports et de votre licence, veuillez réactiver la date et l'heure automatiques sur votre téléphone.")
-            },
-            confirmButton = {
-                Button(onClick = { settingsViewModel.updateLastKnownTimestamp() }) {
-                    Text("J'ai corrigé l'heure")
-                }
-            }
-        )
+    if (isCheckingAuth) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            CircularProgressIndicator()
+        }
         return
     }
 
-    val needsLicenseActivation = !settings.isLicensed || com.sypos.mobile.util.LicenseManager.isLicenseExpired(settings.licenseExpiryDate)
+    if (!isAuthenticated) {
+        AuthScreen(onAuthSuccess = { shopName, phone ->
+            isCheckingAuth = true
+            coroutineScope.launch {
+                val status = CloudAuthManager().verifyAndRegisterDevice(context, shopName, phone)
+                if (status.isValid) {
+                    isAuthenticated = true
+                    authError = null
+                    if (status.shopId.isNotBlank()) {
+                        settingsViewModel.setCurrentShopId(status.shopId)
+                        settingsViewModel.startCloudSync(status.shopId)
+                    }
+                } else {
+                    authError = status.message
+                }
+                isCheckingAuth = false
+            }
+        })
+        return
+    }
 
-    // If application needs initial license activation
-    if (needsLicenseActivation) {
-        com.sypos.mobile.ui.auth.LicenseDialog(
-            settings = settings,
-            isInitialSetup = true,
-            onSaveLicense = { key, type, expiry ->
-                settingsViewModel.saveLicense(key, type, expiry)
+    if (authError != null) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Abonnement / Accès KAYO", fontWeight = FontWeight.Bold) },
+            text = { Text(authError!!) },
+            confirmButton = {
+                Button(onClick = { 
+                    FirebaseAuth.getInstance().signOut()
+                    isAuthenticated = false
+                    authError = null
+                }) {
+                    Text("Se déconnecter")
+                }
             }
         )
         return
@@ -109,20 +171,24 @@ fun SyposNavigation(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    val bottomNavItems = listOf(
+    val bottomNavItems = mutableListOf(
         BottomNavItem.Pos,
         BottomNavItem.Products,
         BottomNavItem.History,
         BottomNavItem.Tools,
         BottomNavItem.Customers,
         BottomNavItem.Reports
-    )
+    ).apply {
+        if (settings.currentUserRole == com.sypos.mobile.data.local.UserRole.CASHIER) {
+            remove(BottomNavItem.Products) // Le vendeur ne doit pas avoir accès au catalogue
+        }
+    }
 
     val isBottomBarVisible = currentRoute in bottomNavItems.map { it.route }
 
     fun navigateSafely(targetRoute: String) {
-        if (targetRoute == "reports" || targetRoute == "settings") {
-            if (settings.pinLockEnabled && settings.currentUserRole == UserRole.CASHIER) {
+        if (targetRoute == "settings") {
+            if (settings.pinLockEnabled && settings.currentUserRole == com.sypos.mobile.data.local.UserRole.CASHIER) {
                 pendingAdminRoute = targetRoute
                 showAdminPinDialog = true
                 return
@@ -144,24 +210,26 @@ fun SyposNavigation(
         bottomBar = {
             if (isBottomBarVisible) {
                 NavigationBar(
-                    tonalElevation = NavigationBarDefaults.Elevation
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 8.dp
                 ) {
                     bottomNavItems.forEach { item ->
-                        val isSelected = currentRoute == item.route
+                        val selected = currentRoute == item.route
                         NavigationBarItem(
-                            selected = isSelected,
+                            selected = selected,
                             onClick = { navigateSafely(item.route) },
                             icon = {
                                 Icon(
-                                    imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
+                                    imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
                                     contentDescription = item.title
                                 )
                             },
                             label = {
                                 Text(
                                     text = item.title,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    maxLines = 1
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1,
+                                    fontSize = 11.sp
                                 )
                             }
                         )
@@ -173,133 +241,81 @@ fun SyposNavigation(
         NavHost(
             navController = navController,
             startDestination = BottomNavItem.Pos.route,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
+            modifier = Modifier.padding(innerPadding)
         ) {
-            // Tab 1: Caisse POS
-            composable(BottomNavItem.Pos.route) { backStackEntry ->
-                val scannedBarcode by backStackEntry.savedStateHandle.getStateFlow<String?>("scanned_barcode", null).collectAsState()
+            composable(BottomNavItem.Pos.route) { entry ->
+                val scannedBarcode = entry.savedStateHandle.get<String>("scanned_barcode")
                 PosScreen(
-                    onNavigateToScanner = { navController.navigate("scanner?target=pos") },
-                    onNavigateToSettings = { navigateSafely("settings") },
-                    onNavigateToAddProductWithBarcode = { unknownBarcode ->
-                        navController.currentBackStackEntry
-                            ?.savedStateHandle
-                            ?.set("scanned_barcode", unknownBarcode)
-                        navController.navigate("addProduct")
-                    },
-                    onLockApp = { isAppUnlocked = false },
                     scannedBarcode = scannedBarcode,
-                    onBarcodeProcessed = {
-                        backStackEntry.savedStateHandle.remove<String>("scanned_barcode")
-                    }
-                )
+                    onBarcodeProcessed = { entry.savedStateHandle.remove<String>("scanned_barcode") },
+                    onNavigateToScanner = { navController.navigate("barcode_scanner") },
+                    onNavigateToSettings = { navigateSafely("settings") },
+                    onNavigateToAddProductWithBarcode = { barcode -> 
+                        navController.navigate("add_edit_product")
+                    },
+                    onLockApp = { isAppUnlocked = false }
+                ) 
             }
-
-            // Tab 2: Catalogue & Stock
-            composable(BottomNavItem.Products.route) { backStackEntry ->
-                val scannedBarcode by backStackEntry.savedStateHandle.getStateFlow<String?>("scanned_barcode", null).collectAsState()
-                ProductListScreen(
-                    onAddProductClick = { navController.navigate("addProduct") },
-                    onEditProductClick = { productId -> navController.navigate("editProduct/$productId") },
-                    onNavigateToScanner = { navController.navigate("scanner?target=products") },
-                    scannedBarcode = scannedBarcode
-                )
-            }
-
-            // Tab 3: Historique des Ventes
-            composable(BottomNavItem.History.route) {
-                HistoryScreen(
-                    onNavigateToScanner = { navController.navigate("scanner?target=history") }
-                )
-            }
-
-            // Tab 4: Outils & Étiquettes
-            composable(BottomNavItem.Tools.route) {
-                ToolsScreen(
-                    onNavigateToScanner = { navController.navigate("scanner?target=tools") }
-                )
-            }
-
-            // Tab 5: Clients & Dettes
-            composable(BottomNavItem.Customers.route) {
-                CustomerListScreen()
-            }
-
-            // Tab 6: Bilan & Caisse
-            composable(BottomNavItem.Reports.route) {
-                ReportScreen()
-            }
-
-            // Settings
-            composable("settings") {
-                SettingsScreen(
-                    onNavigateBack = { navController.popBackStack() }
-                )
-            }
-
-            // Add Product
-            composable("addProduct") { backStackEntry ->
-                val scannedBarcode by backStackEntry.savedStateHandle.getStateFlow<String?>("scanned_barcode", null).collectAsState()
-                AddEditProductScreen(
-                    onNavigateBack = { navController.popBackStack() },
-                    onNavigateToScanner = { navController.navigate("scanner?target=addProduct") },
-                    scannedBarcode = scannedBarcode
-                )
-            }
-
-            // Edit Product
+            composable(BottomNavItem.Products.route) { ProductListScreen(
+                onAddProductClick = { navController.navigate("add_edit_product") },
+                onEditProductClick = { productId -> navController.navigate("add_edit_product?productId=$productId") },
+                onNavigateToScanner = { navController.navigate("barcode_scanner") }
+            ) }
             composable(
-                route = "editProduct/{productId}",
-                arguments = listOf(navArgument("productId") { type = NavType.StringType })
+                route = "add_edit_product?productId={productId}",
+                arguments = listOf(navArgument("productId") { type = NavType.StringType; nullable = true })
             ) { backStackEntry ->
                 val productId = backStackEntry.arguments?.getString("productId")
-                val scannedBarcode by backStackEntry.savedStateHandle.getStateFlow<String?>("scanned_barcode", null).collectAsState()
+                val scannedBarcode = backStackEntry.savedStateHandle.get<String>("scanned_barcode")
                 AddEditProductScreen(
                     productId = productId,
-                    onNavigateBack = { navController.popBackStack() },
-                    onNavigateToScanner = { navController.navigate("scanner?target=editProduct") },
-                    scannedBarcode = scannedBarcode
+                    scannedBarcode = scannedBarcode,
+                    onNavigateBack = { 
+                        backStackEntry.savedStateHandle.remove<String>("scanned_barcode")
+                        navController.navigateUp() 
+                    },
+                    onNavigateToScanner = { navController.navigate("barcode_scanner") }
                 )
             }
-
-            // Barcode Scanner with target routing
-            composable(
-                route = "scanner?target={target}",
-                arguments = listOf(navArgument("target") {
-                    type = NavType.StringType
-                    defaultValue = "pos"
-                })
-            ) {
+            composable(BottomNavItem.History.route) { HistoryScreen() }
+            composable(BottomNavItem.Reports.route) { ReportScreen() }
+            composable(BottomNavItem.Tools.route) { ToolsScreen(
+                onNavigateToScanner = { navController.navigate("barcode_scanner") }
+            ) }
+            composable(BottomNavItem.Customers.route) { CustomerListScreen() }
+            composable("settings") { 
+                SettingsScreen(
+                    onNavigateBack = { navController.navigateUp() },
+                    onLogout = { isAuthenticated = false }
+                ) 
+            }
+            composable("barcode_scanner") {
                 BarcodeScannerScreen(
-                    onNavigateBack = { navController.popBackStack() },
-                    onBarcodeScanned = { barcode ->
-                        navController.previousBackStackEntry
-                            ?.savedStateHandle
-                            ?.set("scanned_barcode", barcode)
-                        navController.popBackStack()
-                    }
+                    onBarcodeScanned = { code -> 
+                        navController.previousBackStackEntry?.savedStateHandle?.set("scanned_barcode", code)
+                        navController.navigateUp()
+                    },
+                    onNavigateBack = { navController.navigateUp() }
                 )
             }
         }
-    }
 
-    if (showAdminPinDialog && pendingAdminRoute != null) {
-        PinAuthDialog(
-            title = "Code PIN Administrateur Requis",
-            correctPin = settings.adminPin,
-            onDismiss = {
-                showAdminPinDialog = false
-                pendingAdminRoute = null
-            },
-            onSuccess = {
-                val route = pendingAdminRoute!!
-                showAdminPinDialog = false
-                pendingAdminRoute = null
-                settingsViewModel.setUserRole(UserRole.ADMIN)
-                navController.navigate(route)
-            }
-        )
+        if (showAdminPinDialog) {
+            PinAuthDialog(
+                correctPin = settings.adminPin,
+                onDismiss = {
+                    showAdminPinDialog = false
+                    pendingAdminRoute = null
+                },
+                onSuccess = {
+                    showAdminPinDialog = false
+                    pendingAdminRoute?.let {
+                        navController.navigate(it)
+                        pendingAdminRoute = null
+                    }
+                }
+            )
+        }
     }
 }
+

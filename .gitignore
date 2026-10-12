@@ -14,3 +14,13 @@
 captures/
 .externalNativeBuild
 .cxx
+/app/build_trash/
+/_BACKUP_STABLE_*/
+/_BACKUP_STABLE_*.zip
+/_ARCHIVES_*/
+/jdk-17.0.2/
+/jdk17.zip
+/keystore/
+*.jks
+*.keystore
+.kotlin/

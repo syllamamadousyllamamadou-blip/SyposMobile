@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.util.*
 import javax.inject.Inject
+import com.sypos.mobile.data.remote.CloudSyncManager
+import com.google.firebase.auth.FirebaseAuth
 
 enum class DateRangeFilter(val label: String) {
     ALL("Tout"),
@@ -31,7 +33,9 @@ enum class DateRangeFilter(val label: String) {
 class HistoryViewModel @Inject constructor(
     private val ticketRepository: TicketRepository,
     private val customerRepository: CustomerRepository,
-    private val shopSettingsManager: ShopSettingsManager
+    private val shopSettingsManager: ShopSettingsManager,
+    private val database: com.sypos.mobile.data.local.SyposDatabase,
+    private val cloudSyncManager: CloudSyncManager
 ) : ViewModel() {
 
     val settings: StateFlow<ShopSettings> = shopSettingsManager.settings
@@ -102,6 +106,16 @@ class HistoryViewModel @Inject constructor(
     fun cancelTicket(ticketId: String) {
         viewModelScope.launch {
             ticketRepository.cancelTicket(ticketId)
+            
+            // Push cancellation to cloud
+            val updatedTicket = database.ticketDao().getTicketById(ticketId)
+            if (updatedTicket != null) {
+                val uid = shopSettingsManager.getEffectiveShopId()
+                if (uid.isNotBlank()) {
+                    val items = database.ticketDao().getItemsForTicketSync(ticketId)
+                    cloudSyncManager.pushTicketCancellation(uid, updatedTicket, items)
+                }
+            }
         }
     }
 
@@ -184,3 +198,6 @@ class HistoryViewModel @Inject constructor(
         }
     }
 }
+
+
+

@@ -14,7 +14,7 @@ object DeviceSecurityHelper {
 
     /**
      * Generates a unique, stable, non-forgeable Hardware Device ID.
-     * Format: SYPOS-DEV-XXXX-YYYY (e.g., SYPOS-DEV-7A8B-49C2)
+     * Format: KAYO-DEV-XXXX-YYYY (e.g., KAYO-DEV-7A8B-49C2)
      */
     @SuppressLint("HardwareIds")
     fun getDeviceId(context: Context): String {
@@ -40,7 +40,7 @@ object DeviceSecurityHelper {
         val part1 = if (hash.length >= 4) hash.substring(0, 4) else "0000"
         val part2 = if (hash.length >= 8) hash.substring(4, 8) else "0000"
 
-        val formattedId = "SYPOS-DEV-$part1-$part2"
+        val formattedId = "KAYO-DEV-$part1-$part2"
         cachedDeviceId = formattedId
         return formattedId
     }

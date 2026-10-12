@@ -1,9 +1,18 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.gms.google-services")
+}
+
+val localPropsFile = rootProject.file("local.properties")
+val localProps = Properties()
+if (localPropsFile.exists()) {
+    localPropsFile.inputStream().use { localProps.load(it) }
 }
 
 android {
@@ -23,6 +32,24 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val storeRelPath = localProps.getProperty("RELEASE_KEYSTORE_PATH")
+            val keystoreFile = if (rootProject.file("keystore/sypos-release.jks").exists()) {
+                rootProject.file("keystore/sypos-release.jks")
+            } else if (!storeRelPath.isNullOrBlank()) {
+                file(storeRelPath)
+            } else null
+
+            if (keystoreFile != null && keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = localProps.getProperty("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = localProps.getProperty("RELEASE_KEY_ALIAS")
+                keyPassword = localProps.getProperty("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -30,6 +57,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            val releaseSign = signingConfigs.findByName("release")
+            if (releaseSign?.storeFile != null && releaseSign.storeFile!!.exists()) {
+                signingConfig = releaseSign
+            }
         }
     }
     compileOptions {
@@ -49,7 +80,12 @@ android {
     }
 }
 
+tasks.withType<JavaCompile>().configureEach {
+    options.encoding = "UTF-8"
+}
+
 dependencies {
+    implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.2")
@@ -80,6 +116,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:${camerax_version}")
     implementation("androidx.camera:camera-lifecycle:${camerax_version}")
     implementation("androidx.camera:camera-view:${camerax_version}")
+    implementation("com.google.guava:guava:31.1-android")
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
 
     // ZXing for Barcode generation
@@ -93,4 +130,10 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // Firebase
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-firestore")
+    implementation("com.google.firebase:firebase-auth")
 }
+

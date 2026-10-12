@@ -12,11 +12,11 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface CustomerDao {
 
-    @Query("SELECT * FROM customers ORDER BY name ASC")
+    @Query("SELECT * FROM customers ORDER BY totalSpent DESC, name ASC")
     fun getAllCustomers(): Flow<List<CustomerEntity>>
 
-    @Query("SELECT * FROM customers WHERE totalDebt > 0 ORDER BY totalDebt DESC")
-    fun getCustomersWithDebt(): Flow<List<CustomerEntity>>
+    @Query("SELECT * FROM customers WHERE totalSpent >= 50000 OR visitCount >= 5 ORDER BY totalSpent DESC")
+    fun getVipCustomers(): Flow<List<CustomerEntity>>
 
     @Query("SELECT * FROM customers WHERE name LIKE '%' || :query || '%' OR phone LIKE '%' || :query || '%' ORDER BY name ASC")
     fun searchCustomers(query: String): Flow<List<CustomerEntity>>
@@ -30,11 +30,14 @@ interface CustomerDao {
     @Update
     suspend fun updateCustomer(customer: CustomerEntity)
 
-    @Query("UPDATE customers SET totalDebt = totalDebt + :amount WHERE id = :customerId")
+    @Query("UPDATE customers SET totalSpent = totalSpent + :amount, visitCount = visitCount + 1, lastPurchaseDate = :date WHERE id = :customerId")
+    suspend fun recordPurchase(customerId: String, amount: Double, date: Long = System.currentTimeMillis())
+
+    @Query("UPDATE customers SET debt = debt + :amount WHERE id = :customerId")
     suspend fun addDebt(customerId: String, amount: Double)
 
-    @Query("UPDATE customers SET totalDebt = MAX(0.0, totalDebt - :amount) WHERE id = :customerId")
-    suspend fun reduceDebt(customerId: String, amount: Double)
+    @Query("UPDATE customers SET debt = debt - :amount WHERE id = :customerId")
+    suspend fun payDebt(customerId: String, amount: Double)
 
     @Delete
     suspend fun deleteCustomer(customer: CustomerEntity)

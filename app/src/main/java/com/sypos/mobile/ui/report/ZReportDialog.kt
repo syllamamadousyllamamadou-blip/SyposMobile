@@ -1,5 +1,6 @@
 package com.sypos.mobile.ui.report
 
+import com.sypos.mobile.util.CurrencyUtils.formatAmount
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
@@ -69,7 +70,7 @@ fun ZReportDialog(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = settings.shopName.ifBlank { "SYPOS COMMERCE" },
+                        text = settings.shopName.ifBlank { "KAYO COMMERCE" },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
@@ -86,31 +87,34 @@ fun ZReportDialog(
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
                     // Chiffre d'Affaires & Ventes
-                    ZReportRow("Chiffre d'Affaires", String.format(Locale.FRANCE, "%,.0f CFA", report.totalSales), isBold = true)
+                    ZReportRow("Chiffre d'Affaires", report.totalSales.formatAmount(settings.currency), isBold = true)
                     ZReportRow("Nombre de ventes", "${report.ticketsCount} tickets")
-                    ZReportRow("Total Dépenses", "-${String.format(Locale.FRANCE, "%,.0f CFA", report.totalExpenses)}", valueColor = MaterialTheme.colorScheme.error)
+                    ZReportRow("Total Dépenses", "-${report.totalExpenses.formatAmount(settings.currency)}", valueColor = MaterialTheme.colorScheme.error)
+                    
+                    val benefice = report.totalSales - report.totalPurchaseCost - report.totalExpenses
+                    ZReportRow("Bénéfice Net", benefice.formatAmount(settings.currency), isBold = true, valueColor = if (benefice >= 0) Color(0xFF10B981) else MaterialTheme.colorScheme.error)
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
                     Text("Ventilation des Encaissements :", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                    ZReportRow("• Espèces (Cash)", String.format(Locale.FRANCE, "%,.0f CFA", report.cashSales))
+                    ZReportRow("• Espèces (Cash)", report.cashSales.formatAmount(settings.currency))
                     if (report.waveSales > 0) {
-                        ZReportRow("• Wave", String.format(Locale.FRANCE, "%,.0f CFA", report.waveSales))
+                        ZReportRow("• Wave", report.waveSales.formatAmount(settings.currency))
                     }
                     if (report.orangeMoneySales > 0) {
-                        ZReportRow("• Orange Money", String.format(Locale.FRANCE, "%,.0f CFA", report.orangeMoneySales))
+                        ZReportRow("• Orange Money", report.orangeMoneySales.formatAmount(settings.currency))
                     }
                     if (report.mtnSales > 0) {
-                        ZReportRow("• MTN MoMo", String.format(Locale.FRANCE, "%,.0f CFA", report.mtnSales))
+                        ZReportRow("• MTN MoMo", report.mtnSales.formatAmount(settings.currency))
                     }
                     if (report.moovSales > 0) {
-                        ZReportRow("• Moov Money", String.format(Locale.FRANCE, "%,.0f CFA", report.moovSales))
+                        ZReportRow("• Moov Money", report.moovSales.formatAmount(settings.currency))
                     }
                     if (report.cardSales > 0) {
-                        ZReportRow("• Carte Bancaire", String.format(Locale.FRANCE, "%,.0f CFA", report.cardSales))
+                        ZReportRow("• Carte Bancaire", report.cardSales.formatAmount(settings.currency))
                     }
                     if (report.creditSales > 0) {
-                        ZReportRow("• Ventes à Crédit", String.format(Locale.FRANCE, "%,.0f CFA", report.creditSales))
+                        ZReportRow("• Ventes à Crédit", report.creditSales.formatAmount(settings.currency))
                     }
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -123,7 +127,7 @@ fun ZReportDialog(
                         Column(modifier = Modifier.padding(10.dp)) {
                             ZReportRow(
                                 "ESPECES EN CAISSE",
-                                String.format(Locale.FRANCE, "%,.0f CFA", report.netCashInDrawer),
+                                report.netCashInDrawer.formatAmount(settings.currency),
                                 isBold = true,
                                 valueColor = MaterialTheme.colorScheme.primary
                             )
@@ -204,23 +208,25 @@ fun shareZReportText(
     val sb = StringBuilder()
     sb.appendLine("📊 *RAPPORT Z - CLÔTURE DE CAISSE*")
     sb.appendLine("*${settings.shopName.uppercase(Locale.getDefault())}*")
-    if (settings.shopAddress.isNotBlank()) sb.appendLine("📍 ${settings.shopAddress}")
+    if (settings.shopAddress.isNotBlank()) sb.appendLine("📍 ${settings.shopAddress}")
     sb.appendLine("Date: ${report.dateText}")
     sb.appendLine("--------------------------------")
-    sb.appendLine("💰 *Chiffre d'Affaires : ${String.format(Locale.FRANCE, "%,.0f CFA", report.totalSales)}*")
+    sb.appendLine("💰 *Chiffre d'Affaires : ${report.totalSales.formatAmount(settings.currency)}*")
     sb.appendLine("🧾 Ventes réalisées : ${report.ticketsCount} tickets")
-    sb.appendLine("📉 Total Dépenses : -${String.format(Locale.FRANCE, "%,.0f CFA", report.totalExpenses)}")
+    sb.appendLine("📉 Total Dépenses : -${report.totalExpenses.formatAmount(settings.currency)}")
+    val benefice = report.totalSales - report.totalPurchaseCost - report.totalExpenses
+    sb.appendLine("📈 *Bénéfice Net : ${benefice.formatAmount(settings.currency)}*")
     sb.appendLine("--------------------------------")
     sb.appendLine("*VENTILATION DES ENCAISSEMENTS :*")
-    sb.appendLine("💵 Espèces (Cash) : ${String.format(Locale.FRANCE, "%,.0f CFA", report.cashSales)}")
-    if (report.waveSales > 0) sb.appendLine("🌊 Wave : ${String.format(Locale.FRANCE, "%,.0f CFA", report.waveSales)}")
-    if (report.orangeMoneySales > 0) sb.appendLine("🍊 Orange Money : ${String.format(Locale.FRANCE, "%,.0f CFA", report.orangeMoneySales)}")
-    if (report.mtnSales > 0) sb.appendLine("💛 MTN MoMo : ${String.format(Locale.FRANCE, "%,.0f CFA", report.mtnSales)}")
-    if (report.moovSales > 0) sb.appendLine("💙 Moov Money : ${String.format(Locale.FRANCE, "%,.0f CFA", report.moovSales)}")
-    if (report.cardSales > 0) sb.appendLine("💳 Carte Bancaire : ${String.format(Locale.FRANCE, "%,.0f CFA", report.cardSales)}")
-    if (report.creditSales > 0) sb.appendLine("📝 Ventes à Crédit : ${String.format(Locale.FRANCE, "%,.0f CFA", report.creditSales)}")
+    sb.appendLine("💵 Espèces (Cash) : ${report.cashSales.formatAmount(settings.currency)}")
+    if (report.waveSales > 0) sb.appendLine("🌊 Wave : ${report.waveSales.formatAmount(settings.currency)}")
+    if (report.orangeMoneySales > 0) sb.appendLine("🟠 Orange Money : ${report.orangeMoneySales.formatAmount(settings.currency)}")
+    if (report.mtnSales > 0) sb.appendLine("💛 MTN MoMo : ${report.mtnSales.formatAmount(settings.currency)}")
+    if (report.moovSales > 0) sb.appendLine("💙 Moov Money : ${report.moovSales.formatAmount(settings.currency)}")
+    if (report.cardSales > 0) sb.appendLine("💳 Carte Bancaire : ${report.cardSales.formatAmount(settings.currency)}")
+    if (report.creditSales > 0) sb.appendLine("📍 Ventes à Crédit : ${report.creditSales.formatAmount(settings.currency)}")
     sb.appendLine("--------------------------------")
-    sb.appendLine("🔒 *ESPÈCES EN CAISSE : ${String.format(Locale.FRANCE, "%,.0f CFA", report.netCashInDrawer)}*")
+    sb.appendLine("🔒 *ESPÈCES EN CAISSE : ${report.netCashInDrawer.formatAmount(settings.currency)}*")
     sb.appendLine("_(Cash encaissé - Dépenses en espèces)_")
 
     val sendIntent = Intent().apply {
@@ -231,3 +237,4 @@ fun shareZReportText(
     val shareIntent = Intent.createChooser(sendIntent, "Partager le Rapport Z")
     context.startActivity(shareIntent)
 }
+

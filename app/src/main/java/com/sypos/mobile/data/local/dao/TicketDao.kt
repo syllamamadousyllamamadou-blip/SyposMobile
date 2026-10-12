@@ -23,6 +23,12 @@ interface TicketDao {
     @Query("SELECT * FROM tickets WHERE id = :id")
     suspend fun getTicketById(id: String): TicketEntity?
 
+    @Query("SELECT * FROM tickets WHERE customerId = :customerId ORDER BY date DESC")
+    fun getTicketsByCustomerId(customerId: String): Flow<List<TicketEntity>>
+
+    @Query("SELECT * FROM tickets WHERE customerId = :customerId AND status = :status ORDER BY date ASC")
+    suspend fun getTicketsByCustomerAndStatusSync(customerId: String, status: TicketStatus): List<TicketEntity>
+
     @Query("SELECT * FROM tickets WHERE date >= :startDate AND date <= :endDate ORDER BY date DESC")
     fun getTicketsByDateRange(startDate: Long, endDate: Long): Flow<List<TicketEntity>>
 

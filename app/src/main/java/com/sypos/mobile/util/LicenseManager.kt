@@ -22,7 +22,7 @@ data class LicenseStatus(
 
 object LicenseManager {
 
-    // SYPOS 2048-bit RSA Public Key (X.509 ASN.1 DER Base64)
+    // KAYO 2048-bit RSA Public Key (X.509 ASN.1 DER Base64)
     private const val RSA_PUBLIC_KEY_B64 = 
         "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAy4fzpl4lsQkScqSwHrAx" +
         "CiUEndXd1Kop9u/kKdGtxmvvJzxD15KN71TJ8ZVw/ds749Pz3yCdzlU7io5fDshu" +
@@ -55,6 +55,8 @@ object LicenseManager {
             .replace("\r", "")
             .replace(" ", "")
 
+
+
         if (cleanToken.isBlank()) {
             return LicenseStatus(
                 isValid = false,
@@ -67,7 +69,7 @@ object LicenseManager {
             return LicenseStatus(
                 isValid = false,
                 licenseType = "Format Invalide",
-                message = "Clé invalide. Le format de licence SYPOS doit commencer par 'SYP1.'."
+                message = "Clé invalide. Le format de licence KAYO doit commencer par 'KAYO1.'."
             )
         }
 
@@ -111,7 +113,7 @@ object LicenseManager {
             return LicenseStatus(
                 isValid = false,
                 licenseType = "Signature Invalide",
-                message = "Signature de licence invalide ou falsifiée. Contactez l'administrateur SYPOS."
+                message = "Signature de licence invalide ou falsifiée. Contactez l'administrateur KAYO."
             )
         }
 
@@ -128,7 +130,7 @@ object LicenseManager {
         }
 
         val devId = json.optString("devId", "").trim().uppercase(Locale.ROOT)
-        val shopName = json.optString("shop", "Boutique SYPOS")
+        val shopName = json.optString("shop", "Boutique KAYO")
         val plan = json.optString("plan", "LIFETIME").uppercase(Locale.ROOT)
         val expiryMs = json.optLong("exp", 0L)
 
@@ -150,7 +152,7 @@ object LicenseManager {
             return LicenseStatus(
                 isValid = false,
                 licenseType = "Licence Expirée",
-                message = "Votre licence a expiré le $expStr. Veuillez contacter SYPOS pour renouveler votre abonnement.",
+                message = "Votre licence a expiré le $expStr. Veuillez contacter KAYO pour renouveler votre abonnement.",
                 expiryTimestamp = expiryMs,
                 shopName = shopName,
                 targetDeviceId = devId
@@ -160,7 +162,7 @@ object LicenseManager {
         val typeLabel = when (plan) {
             "LIFETIME" -> "Licence Définitive (Illimitée à Vie)"
             "ANNUAL" -> "Licence Annuelle Pro (1 An)"
-            "TRIAL" -> "Licence d'Essai (30 Jours)"
+            "TRIAL" -> "Licence d'Essai (7 Jours)"
             else -> "Licence Commerciale Valide"
         }
 

@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,16 +33,27 @@ val categoryColors = listOf(
 )
 
 @Composable
-fun AddCategoryDialog(
+fun AddEditCategoryDialog(
+    categoryToEdit: CategoryEntity? = null,
     onDismiss: () -> Unit,
-    onConfirm: (CategoryEntity) -> Unit
+    onConfirm: (CategoryEntity) -> Unit,
+    onDelete: ((CategoryEntity) -> Unit)? = null
 ) {
-    var name by remember { mutableStateOf("") }
-    var selectedColor by remember { mutableStateOf(categoryColors[0]) }
+    var name by remember { mutableStateOf(categoryToEdit?.name ?: "") }
+    var selectedColor by remember { mutableStateOf(categoryToEdit?.colorHex ?: categoryColors[0]) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Nouvelle Catégorie", style = MaterialTheme.typography.titleLarge) },
+        title = { 
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(if (categoryToEdit == null) "Nouvelle Catégorie" else "Modifier Catégorie", style = MaterialTheme.typography.titleLarge)
+                if (categoryToEdit != null && onDelete != null) {
+                    IconButton(onClick = { onDelete(categoryToEdit); onDismiss() }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Supprimer", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 OutlinedTextField(
@@ -97,13 +109,15 @@ fun AddCategoryDialog(
             Button(
                 onClick = {
                     if (name.isNotBlank()) {
-                        onConfirm(CategoryEntity(name = name.trim(), colorHex = selectedColor))
+                        val newCat = categoryToEdit?.copy(name = name.trim(), colorHex = selectedColor)
+                            ?: CategoryEntity(name = name.trim(), colorHex = selectedColor)
+                        onConfirm(newCat)
                         onDismiss()
                     }
                 },
                 enabled = name.isNotBlank()
             ) {
-                Text("Créer")
+                Text(if (categoryToEdit == null) "Créer" else "Mettre à jour")
             }
         },
         dismissButton = {

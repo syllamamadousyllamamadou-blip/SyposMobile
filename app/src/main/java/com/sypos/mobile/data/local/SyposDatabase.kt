@@ -16,7 +16,7 @@ import com.sypos.mobile.data.local.entity.*
         UserEntity::class,
         PromoCodeEntity::class
     ],
-    version = 2,
+    version = 7,
     exportSchema = false
 )
 abstract class SyposDatabase : RoomDatabase() {

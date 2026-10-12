@@ -19,10 +19,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlinx.coroutines.launch
+import android.widget.Toast
 import com.sypos.mobile.data.local.entity.ProductEntity
 import java.util.Locale
 
@@ -46,6 +49,8 @@ fun AddEditProductScreen(
     var barcode by remember { mutableStateOf(scannedBarcode ?: "") }
     var selectedCategoryId by remember { mutableStateOf<String?>(null) }
     var isLoaded by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     // Load existing product if editing
     LaunchedEffect(productId) {
@@ -109,6 +114,8 @@ fun AddEditProductScreen(
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp)
             )
+
+            // (Image Picker Section removed)
 
             // Catégorie
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -274,8 +281,14 @@ fun AddEditProductScreen(
                             categoryId = selectedCategoryId,
                             colorHex = categories.find { it.id == selectedCategoryId }?.colorHex
                         )
-                        viewModel.saveProduct(product)
-                        onNavigateBack()
+                        coroutineScope.launch {
+                            val errorMsg = viewModel.saveProduct(product)
+                            if (errorMsg != null) {
+                                Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                            } else {
+                                onNavigateBack()
+                            }
+                        }
                     }
                 },
                 enabled = name.isNotBlank() && salePrice.isNotBlank(),
@@ -293,12 +306,14 @@ fun AddEditProductScreen(
     }
 
     if (showAddCategoryDialog) {
-        AddCategoryDialog(
+        AddEditCategoryDialog(
+            categoryToEdit = null,
             onDismiss = { showAddCategoryDialog = false },
             onConfirm = { newCat ->
                 viewModel.addCategory(newCat)
                 selectedCategoryId = newCat.id
-            }
+            },
+            onDelete = {}
         )
     }
 }

@@ -8,10 +8,10 @@ import java.util.UUID
 data class TicketItemEntity(
     @PrimaryKey
     val id: String = UUID.randomUUID().toString(),
-    val ticketId: String,
-    val productId: String,
-    val productName: String,
-    val quantity: Int,
-    val unitPrice: Double,
-    val total: Double
+    val ticketId: String = "",
+    val productId: String = "",
+    val productName: String = "",
+    val quantity: Int = 1,
+    val unitPrice: Double = 0.0,
+    val total: Double = 0.0
 )

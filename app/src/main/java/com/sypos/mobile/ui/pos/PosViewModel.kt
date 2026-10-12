@@ -79,7 +79,9 @@ class PosViewModel @Inject constructor(
     private val ticketRepository: TicketRepository,
     private val customerRepository: CustomerRepository,
     private val promoCodeRepository: PromoCodeRepository,
-    private val shopSettingsManager: ShopSettingsManager
+    private val shopSettingsManager: ShopSettingsManager,
+    private val database: com.sypos.mobile.data.local.SyposDatabase,
+    private val cloudSyncManager: com.sypos.mobile.data.remote.CloudSyncManager
 ) : ViewModel() {
 
     val settings: StateFlow<ShopSettings> = shopSettingsManager.settings
@@ -97,6 +99,12 @@ class PosViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             settings.collect { currentSettings ->
+                // Start cloud sync listener
+                val shopId = shopSettingsManager.getEffectiveShopId()
+                if (shopId.isNotBlank()) {
+                    cloudSyncManager.startListening(shopId)
+                }
+                
                 _uiState.update {
                     it.copy(
                         taxEnabled = currentSettings.taxEnabled,
@@ -182,6 +190,11 @@ class PosViewModel @Inject constructor(
                 showNotification("❌ Produit non répertorié : $trimmed")
             }
         }
+    }
+
+    fun updateSellerName(newName: String) {
+        val updated = settings.value.copy(sellerName = newName)
+        shopSettingsManager.updateSettings(updated)
     }
 
     fun clearUnrecognizedBarcode() {
@@ -348,6 +361,9 @@ class PosViewModel @Inject constructor(
         context: Context,
         paymentMethod: PaymentMethod,
         amountReceived: Double,
+        splitCashAmount: Double? = null,
+        splitOtherAmount: Double? = null,
+        splitOtherMethod: PaymentMethod? = null,
         onSuccess: (TicketEntity) -> Unit
     ) {
         val currentState = _uiState.value
@@ -358,8 +374,11 @@ class PosViewModel @Inject constructor(
             val ticketNumber = generateTicketNumber()
             val ticketId = UUID.randomUUID().toString()
             val total = currentState.totalAmount
-            val change = if (paymentMethod == PaymentMethod.CASH) (amountReceived - total).coerceAtLeast(0.0) else 0.0
-            val status = if (paymentMethod == PaymentMethod.CASH || amountReceived >= total) TicketStatus.PAID else TicketStatus.CREDIT
+            val change = if (paymentMethod == PaymentMethod.CASH || paymentMethod == PaymentMethod.SPLIT) (amountReceived - total).coerceAtLeast(0.0) else 0.0
+            val status = if (paymentMethod == PaymentMethod.CREDIT) TicketStatus.CREDIT else TicketStatus.PAID
+            val totalItems = currentState.cartItems.sumOf { it.quantity }
+            val itemsSummaryText = currentState.cartItems.joinToString(" | ") { "${it.product.name}(x${it.quantity})" }
+            val totalCost = currentState.cartItems.sumOf { (it.product.costPrice ?: 0.0) * it.quantity }
 
             val ticket = TicketEntity(
                 id = ticketId,
@@ -376,7 +395,13 @@ class PosViewModel @Inject constructor(
                 changeReturned = change,
                 customerId = currentState.selectedCustomer?.id,
                 sellerName = currentSettings.sellerName,
-                note = null
+                note = null,
+                splitCashAmount = splitCashAmount,
+                splitOtherAmount = splitOtherAmount,
+                splitOtherMethod = splitOtherMethod,
+                totalItemsCount = totalItems,
+                itemsSummary = itemsSummaryText,
+                totalPurchaseCost = totalCost
             )
 
             val items = currentState.cartItems.map {
@@ -391,6 +416,25 @@ class PosViewModel @Inject constructor(
             }
 
             ticketRepository.createSale(ticket, items)
+
+            // Update customer CRM statistics if customer selected
+            currentState.selectedCustomer?.let { customer ->
+                customerRepository.recordPurchase(customer.id, total)
+                var debtAmount = 0.0
+                if (paymentMethod == PaymentMethod.CREDIT) {
+                    debtAmount = total - amountReceived
+                    if (debtAmount > 0) {
+                        customerRepository.addDebt(customer.id, debtAmount)
+                    }
+                }
+                
+                val shopId = shopSettingsManager.getEffectiveShopId()
+                if (shopId.isNotBlank()) {
+                    cloudSyncManager.pushCustomerPurchaseAndDebt(shopId, customer.id, total, debtAmount)
+                }
+            }
+
+
 
             // Increment Promo code usage if used
             currentState.appliedPromoCode?.let { promo ->
@@ -408,6 +452,27 @@ class PosViewModel @Inject constructor(
                         customerName = currentState.selectedCustomer?.name,
                         settings = currentSettings
                     )
+                }
+            }
+
+            // Trigger automatic cloud backup and real-time sync
+            launch {
+                val shopId = shopSettingsManager.getEffectiveShopId()
+                if (shopId.isNotBlank()) {
+                    cloudSyncManager.pushSale(shopId, ticket, items)
+                }
+                try {
+                    val json = com.sypos.mobile.util.BackupHelper.createBackupJson(database, currentSettings)
+                    val deviceId = com.sypos.mobile.util.DeviceSecurityHelper.getDeviceId(context).trim().uppercase(java.util.Locale.ROOT)
+                    val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                    val data = hashMapOf(
+                        "timestamp" to com.google.firebase.Timestamp.now(),
+                        "data" to json,
+                        "shopName" to currentSettings.shopName
+                    )
+                    db.collection("backups").document(deviceId).set(data)
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
             }
 

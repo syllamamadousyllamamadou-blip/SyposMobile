@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "651368642128",
+    "project_id": "sypos-pro-e6745",
+    "storage_bucket": "sypos-pro-e6745.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:651368642128:android:04d59c055f91ef7decc355",
+        "android_client_info": {
+          "package_name": "com.sypos.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAvjNMQJBPAHnl0MVm1_aHYqFqvfu0ugk8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

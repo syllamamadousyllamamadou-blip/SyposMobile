@@ -8,9 +8,9 @@ import java.util.UUID
 data class UserEntity(
     @PrimaryKey
     val id: String = UUID.randomUUID().toString(),
-    val username: String,
-    val pinCode: String,
-    val role: UserRole
+    val username: String = "",
+    val pinCode: String = "",
+    val role: UserRole = UserRole.CASHIER
 )
 
 enum class UserRole {

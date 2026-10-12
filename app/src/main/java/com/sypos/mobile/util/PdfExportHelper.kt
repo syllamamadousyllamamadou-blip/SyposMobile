@@ -1,5 +1,6 @@
 package com.sypos.mobile.util
 
+import com.sypos.mobile.util.CurrencyUtils.formatAmount
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -87,7 +88,7 @@ object PdfExportHelper {
                     boldPaint.textSize = 10f
                     canvas.drawText("CHIFFRE D'AFFAIRES TOTAL", 35f, y + 18f, boldPaint)
                     boldPaint.textSize = 14f
-                    canvas.drawText(String.format(Locale.FRANCE, "%,.0f CFA", totalSales), 35f, y + 35f, boldPaint)
+                    canvas.drawText(totalSales.formatAmount(settings.currency), 35f, y + 35f, boldPaint)
 
                     boldPaint.textSize = 10f
                     canvas.drawText("NOMBRE DE TICKETS PAYÉS", 260f, y + 18f, boldPaint)
@@ -121,7 +122,7 @@ object PdfExportHelper {
                 canvas.drawText("RÈGLEMENT", 240f, y + 15f, boldPaint)
                 canvas.drawText("STATUT", 340f, y + 15f, boldPaint)
                 boldPaint.textAlign = Paint.Align.RIGHT
-                canvas.drawText("MONTANT CFA", (pageWidth - 30).toFloat(), y + 15f, boldPaint)
+                canvas.drawText("MONTANT ${settings.currency}", (pageWidth - 30).toFloat(), y + 15f, boldPaint)
                 boldPaint.textAlign = Paint.Align.LEFT
 
                 y += 26f
@@ -149,9 +150,9 @@ object PdfExportHelper {
                     // Status badge color
                     val (statusText, statusColor) = when (ticket.status) {
                         TicketStatus.PAID -> Pair("PAYÉ", Color.rgb(22, 101, 52))
-                        TicketStatus.CREDIT -> Pair("CRÉDIT", Color.rgb(194, 65, 12))
                         TicketStatus.ON_HOLD -> Pair("EN ATTENTE", Color.rgb(30, 64, 175))
                         TicketStatus.CANCELLED -> Pair("ANNULÉ", Color.rgb(153, 27, 27))
+                        TicketStatus.CREDIT -> Pair("À CRÉDIT", Color.rgb(229, 57, 53))
                     }
                     boldPaint.color = statusColor
                     boldPaint.textSize = 8.5f
@@ -174,7 +175,7 @@ object PdfExportHelper {
                 canvas.drawLine(20f, (pageHeight - 35).toFloat(), (pageWidth - 20).toFloat(), (pageHeight - 35).toFloat(), paint)
                 grayPaint.textSize = 8f
                 val footerSig = if (settings.showPublisherSignature) "${settings.publisherSignatureText} • " else ""
-                canvas.drawText("${footerSig}Édité par ${settings.sellerName} - SYPOS Mobile POS", 25f, (pageHeight - 20).toFloat(), grayPaint)
+                canvas.drawText("${footerSig}Édité par ${settings.sellerName} - KAYO Mobile POS", 25f, (pageHeight - 20).toFloat(), grayPaint)
 
                 pdfDocument.finishPage(page)
 
@@ -184,7 +185,7 @@ object PdfExportHelper {
             // Save PDF to cache/files dir
             val exportsDir = File(context.cacheDir, "exports").apply { mkdirs() }
             val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-            val file = File(exportsDir, "Ventes_SYPOS_$timeStamp.pdf")
+            val file = File(exportsDir, "Ventes_KAYO_$timeStamp.pdf")
 
             FileOutputStream(file).use { out ->
                 pdfDocument.writeTo(out)
@@ -208,7 +209,7 @@ object PdfExportHelper {
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = "application/pdf"
                 putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, "Rapport des Ventes SYPOS")
+                putExtra(Intent.EXTRA_SUBJECT, "Rapport des Ventes KAYO")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
 
@@ -220,3 +221,4 @@ object PdfExportHelper {
         }
     }
 }
+

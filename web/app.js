@@ -1,6 +1,7 @@
 /**
- * SYPOS Mobile Pro — iOS Web PWA Engine v2.2
- * 100% Offline IndexedDB + Web Bluetooth Thermal ESC/POS Driver + Camera Barcode Scanner
+ * SYPOS Mobile Pro — Web PWA Engine v2.3
+ * 100% Offline IndexedDB/LocalStorage + Web Bluetooth Thermal ESC/POS Driver +
+ * Camera Barcode Scanner + Customer CRM + Google Sheets Sync + WhatsApp PNG Receipt
  */
 
 // ==========================================
@@ -30,19 +31,139 @@ const STATE = {
     isLicensed: false,
     licenseKey: "",
     licenseType: "Non activé",
-    licenseExpiryDate: 0
+    licenseExpiryDate: 0,
+    googleSheetsUrl: "",
+    googleSheetsSync: false
   },
   cart: [],
   appliedPromo: null,
   activeCategory: "",
+  selectedCustomerId: "",
   html5QrCode: null,
   pendingPinAction: null,
   bleDevice: null,
   bleCharacteristic: null
 };
 
+let currentCustomerFilter = 'all';
+let currentHistoryPeriod = 'today';
+let pendingQuickAddFromCart = false;
+
 // ==========================================
-// 2. LOCAL PERSISTENCE (LocalStorage / IndexedDB)
+// 2. GOOGLE APPS SCRIPT TEMPLATE CODE
+// ==========================================
+const APPS_SCRIPT_TEMPLATE = `/**
+ * ==========================================================================
+ * GOOGLE APPS SCRIPT POUR SYPOS MOBILE
+ * Suivi des Ventes & Dépenses en Temps Réel
+ * ==========================================================================
+ * 
+ * INSTRUCTIONS DE DÉPLOIEMENT :
+ * 1. Ouvrez un nouveau classeur Google Sheets.
+ * 2. Allez dans "Extensions" > "Apps Script".
+ * 3. Effacez le code par défaut et collez l'intégralité de ce script.
+ * 4. Cliquez sur "Déployer" (bouton bleu en haut à droite) > "Nouveau déploiement".
+ * 5. Choisissez le type : "Application Web".
+ * 6. Définissez "Qui a accès" (Who has access) : "Tout le monde" (Anyone).
+ * 7. Cliquez sur "Déployer", autorisez l'accès et copiez l'URL de l'application Web.
+ * 8. Collez l'URL dans les Paramètres SYPOS Mobile > "URL Webhook Apps Script".
+ */
+
+function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    
+    // 1. Test de Connexion Ping
+    if (data.type === "TEST") {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "SUCCESS",
+        message: "Connexion réussie avec SYPOS Mobile !"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // 2. Enregistrement d'une Vente / Ticket
+    if (data.type === "SALE" || data.type === "TICKET") {
+      var sheet = getOrCreateSheet(ss, "Ventes", [
+        "Date", "Heure", "N° Ticket", "Vendeur", "Client", "Articles", 
+        "Sous-Total (CFA)", "Remise (CFA)", "TVA (CFA)", "Total Payé (CFA)", "Mode de Règlement"
+      ]);
+      
+      var now = new Date(data.date || Date.now());
+      var dateStr = Utilities.formatDate(now, Session.getScriptTimeZone(), "dd/MM/yyyy");
+      var timeStr = Utilities.formatDate(now, Session.getScriptTimeZone(), "HH:mm:ss");
+      var itemsStr = (data.items || []).map(function(i) {
+        return i.productName + " (x" + i.qty + ")";
+      }).join(", ");
+      
+      sheet.appendRow([
+        dateStr,
+        timeStr,
+        data.ticketNumber || data.number,
+        data.sellerName || "",
+        data.customerName || "Client Comptoir",
+        itemsStr,
+        data.subTotal || data.totalAmount,
+        data.discount || 0,
+        data.taxAmount || 0,
+        data.totalAmount,
+        (data.paymentMethod || "ESPECES").toUpperCase()
+      ]);
+
+      // Feuille détaillée Articles Vendus
+      var itemSheet = getOrCreateSheet(ss, "Articles_Vendus", [
+        "Date", "N° Ticket", "Article", "Prix Unitaire", "Quantité", "Total Ligne (CFA)"
+      ]);
+      (data.items || []).forEach(function(i) {
+        itemSheet.appendRow([
+          dateStr,
+          data.ticketNumber || data.number,
+          i.productName,
+          i.price,
+          i.qty,
+          (i.price * i.qty)
+        ]);
+      });
+    }
+
+    // 3. Enregistrement d'une Dépense / Sortie de Caisse
+    if (data.type === "EXPENSE") {
+      var expSheet = getOrCreateSheet(ss, "Dépenses", [
+        "Date", "Heure", "Motif de la Dépense", "Montant (CFA)"
+      ]);
+      var nowExp = new Date(data.date || Date.now());
+      expSheet.appendRow([
+        Utilities.formatDate(nowExp, Session.getScriptTimeZone(), "dd/MM/yyyy"),
+        Utilities.formatDate(nowExp, Session.getScriptTimeZone(), "HH:mm:ss"),
+        data.reason,
+        data.amount
+      ]);
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({ status: "SUCCESS" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: "ERROR", error: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function getOrCreateSheet(ss, name, headers) {
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length)
+      .setFontWeight("bold")
+      .setBackground("#0D9488")
+      .setFontColor("#FFFFFF");
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}`;
+
+// ==========================================
+// 3. LOCAL PERSISTENCE (LocalStorage)
 // ==========================================
 function loadFromStorage() {
   const s = localStorage.getItem('sypos_data_v2');
@@ -58,7 +179,17 @@ function loadFromStorage() {
         { id: "4", name: "Divers", color: "#8B5CF6" }
       ];
       STATE.tickets = parsed.tickets || [];
-      STATE.customers = parsed.customers || [];
+      STATE.customers = (parsed.customers || []).map(c => ({
+        id: c.id || ("c_" + Math.random()),
+        name: c.name || "Client",
+        phone: c.phone || "",
+        email: c.email || "",
+        notes: c.notes || "",
+        totalSpent: typeof c.totalSpent === 'number' ? c.totalSpent : (c.debt ? 0 : 0),
+        visitCount: typeof c.visitCount === 'number' ? c.visitCount : (c.totalSpent ? 1 : 0),
+        lastPurchaseDate: c.lastPurchaseDate || null,
+        createdAt: c.createdAt || Date.now()
+      }));
       STATE.expenses = parsed.expenses || [];
       STATE.promoCodes = parsed.promoCodes || [];
       STATE.heldSales = parsed.heldSales || [];
@@ -66,7 +197,6 @@ function loadFromStorage() {
       console.error(e);
     }
   } else {
-    // Clean initial state (no dummy products or tickets)
     STATE.categories = [
       { id: "1", name: "Alimentation", color: "#10B981" },
       { id: "2", name: "Boissons", color: "#3B82F6" },
@@ -97,7 +227,7 @@ function saveToStorage() {
 }
 
 // ==========================================
-// 3. TAB NAVIGATION
+// 4. TAB NAVIGATION
 // ==========================================
 function initTabs() {
   document.querySelectorAll('.app-tabbar .tab-item').forEach(tab => {
@@ -124,78 +254,116 @@ function initTabs() {
 }
 
 // ==========================================
-// 4. POS & CART LOGIC
+// 5. POS / CAISSE & CART MANAGEMENT
 // ==========================================
 function renderPos() {
+  const container = document.getElementById('posProductGrid');
   const catScroll = document.getElementById('posCategoryScroll');
-  catScroll.innerHTML = `<button class="cat-pill ${STATE.activeCategory === '' ? 'active' : ''}" data-cat="">Tous</button>`;
-  STATE.categories.forEach(c => {
-    catScroll.innerHTML += `<button class="cat-pill ${STATE.activeCategory === c.id ? 'active' : ''}" data-cat="${c.id}">${c.name}</button>`;
-  });
+  if (!container || !catScroll) return;
 
-  catScroll.querySelectorAll('.cat-pill').forEach(pill => {
+  // Render Categories pills
+  catScroll.innerHTML = `<button class="cat-pill ${!STATE.activeCategory ? 'active' : ''}" data-cat="">Tous</button>`;
+  (STATE.categories || []).forEach(cat => {
+    const pill = document.createElement('button');
+    pill.className = `cat-pill ${STATE.activeCategory === cat.id ? 'active' : ''}`;
+    pill.dataset.cat = cat.id;
+    pill.textContent = cat.name;
     pill.addEventListener('click', () => {
-      STATE.activeCategory = pill.dataset.cat;
+      STATE.activeCategory = cat.id;
       renderPos();
     });
+    catScroll.appendChild(pill);
   });
 
-  const searchVal = document.getElementById('posSearchInput').value.toLowerCase().trim();
-  const grid = document.getElementById('posProductGrid');
-  grid.innerHTML = '';
+  const firstPill = catScroll.querySelector('button[data-cat=""]');
+  if (firstPill) {
+    firstPill.onclick = () => {
+      STATE.activeCategory = "";
+      renderPos();
+    };
+  }
 
-  const filtered = STATE.products.filter(p => {
+  // Filter Products
+  const searchVal = (document.getElementById('posSearchInput') ? document.getElementById('posSearchInput').value : '').toLowerCase().trim();
+  const filtered = (STATE.products || []).filter(p => {
     const matchCat = !STATE.activeCategory || p.catId === STATE.activeCategory;
     const matchSearch = !searchVal || p.name.toLowerCase().includes(searchVal) || (p.barcode && p.barcode.includes(searchVal));
     return matchCat && matchSearch;
   });
 
+  container.innerHTML = '';
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div style="grid-column: 1/-1; text-align:center; padding: 40px 10px; color: var(--text-muted);">
+        <div style="font-size: 36px; margin-bottom: 8px;">🛍️</div>
+        <div>Aucun article trouvé</div>
+      </div>
+    `;
+    return;
+  }
+
   filtered.forEach(p => {
     const card = document.createElement('div');
     card.className = 'product-card';
-    const isLow = p.stock <= 5;
+    const isOutOfStock = p.stock <= 0 && !STATE.settings.allowNegativeStock;
+    if (isOutOfStock) card.style.opacity = '0.5';
+
     card.innerHTML = `
-      <span class="stock-badge ${isLow ? 'stock-low' : 'stock-ok'}">${p.stock}</span>
-      <div class="product-name">${p.name}</div>
-      <div class="product-price">${p.salePrice.toLocaleString('fr-FR')} CFA</div>
+      <div class="prod-badge" style="display:${p.stock <= 5 ? 'block' : 'none'}; background:${p.stock <= 0 ? 'var(--danger)' : 'var(--warning)'};">
+        ${p.stock <= 0 ? 'Épuisé' : 'Stock bas: ' + p.stock}
+      </div>
+      <div class="prod-name">${p.name}</div>
+      <div class="prod-price">${p.salePrice.toLocaleString('fr-FR')} CFA</div>
     `;
     card.addEventListener('click', () => addToCart(p));
-    grid.appendChild(card);
+    container.appendChild(card);
   });
 
   updateFloatingCart();
 }
 
 function addToCart(product) {
+  if (product.stock <= 0 && !STATE.settings.allowNegativeStock) {
+    alert("⚠️ Article épuisé en stock !");
+    return;
+  }
   const existing = STATE.cart.find(i => i.product.id === product.id);
   if (existing) {
-    if (!STATE.settings.allowNegativeStock && existing.qty >= product.stock) {
-      alert(`⚠️ Stock insuffisant pour ${product.name} (Stock actuel: ${product.stock})`);
+    if (existing.qty + 1 > product.stock && !STATE.settings.allowNegativeStock) {
+      alert("⚠️ Stock insuffisant pour ajouter un exemplaire supplémentaire.");
       return;
     }
-    existing.qty++;
+    existing.qty += 1;
   } else {
-    if (!STATE.settings.allowNegativeStock && product.stock <= 0) {
-      alert(`⚠️ Article en rupture de stock (${product.name})`);
-      return;
-    }
     STATE.cart.push({ product, qty: 1 });
   }
+  if (navigator.vibrate) navigator.vibrate(40);
   updateFloatingCart();
 }
 
 function updateFloatingCart() {
   const bar = document.getElementById('floatingCartBar');
-  const countSpan = document.getElementById('floatCartCount');
-  const totalSpan = document.getElementById('floatCartTotal');
+  const countEl = document.getElementById('floatCartCount');
+  const totalEl = document.getElementById('floatCartTotal');
+  const heldBadge = document.getElementById('heldBadge');
 
-  const totalCount = STATE.cart.reduce((sum, i) => sum + i.qty, 0);
-  const totalAmount = getCartTotal();
+  if (heldBadge) {
+    if (STATE.heldSales && STATE.heldSales.length > 0) {
+      heldBadge.textContent = STATE.heldSales.length;
+      heldBadge.style.display = 'inline-block';
+    } else {
+      heldBadge.style.display = 'none';
+    }
+  }
 
-  if (totalCount > 0) {
+  if (!bar || !countEl || !totalEl) return;
+  const count = STATE.cart.reduce((sum, i) => sum + i.qty, 0);
+  const total = getCartTotal();
+
+  if (count > 0) {
     bar.style.display = 'flex';
-    countSpan.textContent = totalCount;
-    totalSpan.textContent = totalAmount.toLocaleString('fr-FR');
+    countEl.textContent = count;
+    totalEl.textContent = total.toLocaleString('fr-FR');
   } else {
     bar.style.display = 'none';
   }
@@ -206,220 +374,219 @@ function getCartSubtotal() {
 }
 
 function getCartTotal() {
-  let sub = getCartSubtotal();
+  let subtotal = getCartSubtotal();
   if (STATE.appliedPromo) {
-    sub = sub * (1 - STATE.appliedPromo.discountPercent / 100);
+    if (STATE.appliedPromo.discountPercent) {
+      subtotal -= (subtotal * (STATE.appliedPromo.discountPercent / 100));
+    } else if (STATE.appliedPromo.discountAmount) {
+      subtotal = Math.max(0, subtotal - STATE.appliedPromo.discountAmount);
+    }
   }
   if (STATE.settings.taxEnabled) {
-    sub = sub * (1 + STATE.settings.taxRatePercent / 100);
+    subtotal += (subtotal * ((STATE.settings.taxRatePercent || 18) / 100));
   }
-  return Math.round(sub);
+  return Math.round(subtotal);
+}
+
+function populateCartCustomerSelect() {
+  const sel = document.getElementById('cartCustomerSelect');
+  if (!sel) return;
+  const currentVal = STATE.selectedCustomerId;
+  sel.innerHTML = '<option value="">-- Client Comptoir (Anonyme) --</option>';
+  (STATE.customers || []).forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = `${c.name} ${c.phone ? '(' + c.phone + ')' : ''}`;
+    if (c.id === currentVal) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  updateCartCustomerBadge();
+}
+
+function updateCartCustomerBadge() {
+  const badge = document.getElementById('cartCustomerDetailsBadge');
+  if (!badge) return;
+  const cust = STATE.customers.find(c => c.id === STATE.selectedCustomerId);
+  if (cust) {
+    badge.style.display = 'block';
+    badge.textContent = `⭐ Total achats : ${(cust.totalSpent || 0).toLocaleString('fr-FR')} CFA (${cust.visitCount || 0} commande(s))`;
+  } else {
+    badge.style.display = 'none';
+  }
 }
 
 function renderCartModal() {
   const list = document.getElementById('cartItemsList');
+  if (!list) return;
   list.innerHTML = '';
 
-  STATE.cart.forEach((item, idx) => {
-    const div = document.createElement('div');
-    div.className = 'cart-item';
-    div.innerHTML = `
-      <div style="flex: 1;">
-        <div style="font-weight: 600; font-size: 14px;">${item.product.name}</div>
-        <div style="font-size: 12px; color: var(--text-muted);">${item.product.salePrice.toLocaleString('fr-FR')} CFA × ${item.qty} = ${(item.product.salePrice * item.qty).toLocaleString('fr-FR')} CFA</div>
-      </div>
-      <div class="qty-control">
-        <button class="qty-btn btn-minus" data-idx="${idx}">-</button>
-        <span style="font-weight: 700; min-width: 20px; text-align: center;">${item.qty}</span>
-        <button class="qty-btn btn-plus" data-idx="${idx}">+</button>
-      </div>
-    `;
-    list.appendChild(div);
-  });
+  populateCartCustomerSelect();
 
-  list.querySelectorAll('.btn-minus').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const i = parseInt(btn.dataset.idx);
-      if (STATE.cart[i].qty > 1) {
-        STATE.cart[i].qty--;
-      } else {
-        requestAdminPin("Supprimer cet article du panier", () => {
-          STATE.cart.splice(i, 1);
-          renderCartModal();
-          updateFloatingCart();
-        });
-        return;
-      }
-      renderCartModal();
-      updateFloatingCart();
-    });
-  });
-
-  list.querySelectorAll('.btn-plus').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const i = parseInt(btn.dataset.idx);
-      addToCart(STATE.cart[i].product);
-      renderCartModal();
-    });
-  });
-
-  document.getElementById('cartSubtotalText').textContent = getCartSubtotal().toLocaleString('fr-FR') + ' CFA';
-  if (STATE.settings.taxEnabled) {
-    document.getElementById('cartTaxRow').style.display = 'flex';
-    const taxVal = Math.round(getCartSubtotal() * (STATE.settings.taxRatePercent / 100));
-    document.getElementById('cartTaxText').textContent = taxVal.toLocaleString('fr-FR') + ' CFA';
+  if (STATE.cart.length === 0) {
+    list.innerHTML = '<div style="text-align:center; padding: 20px; color: var(--text-muted);">Le panier est vide.</div>';
   } else {
-    document.getElementById('cartTaxRow').style.display = 'none';
-  }
-  document.getElementById('cartTotalText').textContent = getCartTotal().toLocaleString('fr-FR') + ' CFA';
-}
+    STATE.cart.forEach((item, index) => {
+      const row = document.createElement('div');
+      row.className = 'cart-item-row';
+      row.innerHTML = `
+        <div class="cart-item-info">
+          <div class="cart-item-title">${item.product.name}</div>
+          <div class="cart-item-price">${item.product.salePrice.toLocaleString('fr-FR')} CFA / unité</div>
+        </div>
+        <div class="cart-item-qty-controls">
+          <button class="icon-btn btn-qty-minus" style="border: 1px solid var(--border); width: 32px; height: 32px;">-</button>
+          <span style="font-weight: 700; width: 24px; text-align: center;">${item.qty}</span>
+          <button class="icon-btn btn-qty-plus" style="border: 1px solid var(--border); width: 32px; height: 32px;">+</button>
+          <button class="icon-btn btn-qty-del" style="color: var(--danger); width: 32px; height: 32px; margin-left: 4px;">🗑️</button>
+        </div>
+      `;
 
-// ==========================================
-// 5. BLUETOOTH THERMAL PRINTER DRIVER (Web Bluetooth ESC/POS with Auto-Reconnect)
-// ==========================================
-function updateBleHeaderStatus(connected, deviceName = '') {
-  const btn = document.getElementById('btnHeaderBle');
-  if (btn) {
-    if (connected) {
-      btn.style.color = 'var(--primary)';
-      btn.title = `Imprimante connectée : ${deviceName}`;
+      row.querySelector('.btn-qty-minus').addEventListener('click', () => {
+        if (item.qty > 1) {
+          item.qty -= 1;
+        } else {
+          STATE.cart.splice(index, 1);
+        }
+        renderCartModal();
+        updateFloatingCart();
+      });
+
+      row.querySelector('.btn-qty-plus').addEventListener('click', () => {
+        if (item.qty + 1 > item.product.stock && !STATE.settings.allowNegativeStock) {
+          alert("⚠️ Stock insuffisant.");
+          return;
+        }
+        item.qty += 1;
+        renderCartModal();
+        updateFloatingCart();
+      });
+
+      row.querySelector('.btn-qty-del').addEventListener('click', () => {
+        STATE.cart.splice(index, 1);
+        renderCartModal();
+        updateFloatingCart();
+      });
+
+      list.appendChild(row);
+    });
+  }
+
+  const sub = getCartSubtotal();
+  const tot = getCartTotal();
+  document.getElementById('cartSubtotalText').textContent = sub.toLocaleString('fr-FR') + ' CFA';
+  document.getElementById('cartTotalText').textContent = tot.toLocaleString('fr-FR') + ' CFA';
+
+  const taxRow = document.getElementById('cartTaxRow');
+  if (taxRow) {
+    if (STATE.settings.taxEnabled) {
+      taxRow.style.display = 'flex';
+      const taxAmt = Math.round(sub * ((STATE.settings.taxRatePercent || 18) / 100));
+      document.getElementById('cartTaxText').textContent = taxAmt.toLocaleString('fr-FR') + ' CFA';
     } else {
-      btn.style.color = '';
-      btn.title = "Connecter une imprimante Bluetooth";
+      taxRow.style.display = 'none';
     }
   }
 }
 
+// ==========================================
+// 6. BLUETOOTH THERMAL PRINTER ESC/POS ENGINE
+// ==========================================
 async function connectBluetoothPrinter() {
   if (!navigator.bluetooth) {
-    alert("⚠️ Web Bluetooth n'est pas supporté directement par Safari classique. Sur iOS, utilisez l'application Bluefy ou connectez une imprimante Wi-Fi / AirPrint !");
+    alert("⚠️ Web Bluetooth n'est pas supporté par ce navigateur. Utilisez Chrome sur Android ou Bluefy sur iOS.");
     return false;
   }
   try {
     const device = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
+      filters: [
+        { services: ['000018f0-0000-1000-8000-00805f9b34fb'] },
+        { services: ['e7810a71-73ae-499d-8c15-faa9aef0c3f2'] },
+        { services: ['49535343-fe7d-4ae5-8fa9-9fafd205e455'] }
+      ],
       optionalServices: [
         '000018f0-0000-1000-8000-00805f9b34fb',
         'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
-        '49535343-fe7d-4ae5-8fa9-9fafd205e455'
+        '49535343-fe7d-4ae5-8fa9-9fafd205e455',
+        '0000ffe0-0000-1000-8000-00805f9b34fb'
       ]
     });
-    
+
     device.addEventListener('gattserverdisconnected', () => {
-      console.log("Bluetooth printer disconnected (idle/background)");
-      updateBleHeaderStatus(false);
+      console.log('Printer disconnected');
+      STATE.bleDevice = null;
+      STATE.bleCharacteristic = null;
     });
 
     const server = await device.gatt.connect();
     const services = await server.getPrimaryServices();
-    for (const s of services) {
+    for (let s of services) {
       const chars = await s.getCharacteristics();
-      for (const c of chars) {
+      for (let c of chars) {
         if (c.properties.write || c.properties.writeWithoutResponse) {
-          STATE.bleCharacteristic = c;
           STATE.bleDevice = device;
-          updateBleHeaderStatus(true, device.name);
-          alert(`✅ Imprimante Bluetooth connectée : ${device.name || 'Imprimante ESC/POS'}`);
+          STATE.bleCharacteristic = c;
+          localStorage.setItem('last_ble_device_id', device.id);
+          alert("✅ Imprimante Bluetooth connectée : " + (device.name || "Imprimante Thermique"));
           return true;
         }
       }
     }
-    return false;
   } catch (err) {
-    console.error("Bluetooth connection error:", err);
+    if (err.name !== 'NotFoundError') {
+      console.error("BLE Error:", err);
+      alert("Erreur Bluetooth : " + err.message);
+    }
     return false;
   }
-}
-
-async function ensurePrinterConnected() {
-  if (STATE.bleDevice && STATE.bleDevice.gatt.connected && STATE.bleCharacteristic) {
-    return true;
-  }
-  if (STATE.bleDevice && !STATE.bleDevice.gatt.connected) {
-    try {
-      console.log("Tentative de reconnexion automatique à l'imprimante...");
-      const server = await STATE.bleDevice.gatt.connect();
-      const services = await server.getPrimaryServices();
-      for (const s of services) {
-        const chars = await s.getCharacteristics();
-        for (const c of chars) {
-          if (c.properties.write || c.properties.writeWithoutResponse) {
-            STATE.bleCharacteristic = c;
-            updateBleHeaderStatus(true, STATE.bleDevice.name);
-            return true;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn("Reconnexion auto échouée, ouverture du sélecteur", e);
-    }
-  }
-  return await connectBluetoothPrinter();
+  return false;
 }
 
 async function sendToPrinter(rawBytes) {
-  const isConnected = await ensurePrinterConnected();
-  if (isConnected && STATE.bleCharacteristic) {
-    try {
-      const chunkSize = 100;
-      for (let i = 0; i < rawBytes.length; i += chunkSize) {
-        const chunk = rawBytes.slice(i, i + chunkSize);
-        await STATE.bleCharacteristic.writeValue(chunk);
-      }
-      return true;
-    } catch (e) {
-      console.error("Erreur d'envoi Bluetooth:", e);
-      window.print();
-      return false;
+  if (!STATE.bleCharacteristic) {
+    const ok = await connectBluetoothPrinter();
+    if (!ok) return false;
+  }
+  try {
+    const chunkSize = 100;
+    for (let i = 0; i < rawBytes.length; i += chunkSize) {
+      const chunk = rawBytes.slice(i, i + chunkSize);
+      await STATE.bleCharacteristic.writeValue(chunk);
     }
-  } else {
-    // Fallback to iOS System Print
-    window.print();
+    return true;
+  } catch (err) {
+    console.error("Print send error:", err);
+    alert("⚠️ Erreur lors de l'envoi à l'imprimante : " + err.message);
     return false;
   }
 }
 
-// ==========================================
-// 6. RECEIPT GENERATOR & PRINTING
-// ==========================================
 function removeAccents(str) {
-  if (!str) return '';
-  return String(str)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/œ/g, "oe")
-    .replace(/æ/g, "ae")
-    .replace(/[^\x20-\x7E\n]/g, ""); // Keep pure ASCII for thermal print heads
+  return (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-function padLine(left, right, width, fill = ' ') {
-  left = String(left || '');
-  right = String(right || '');
-  const maxLeft = width - right.length - 1;
-  if (left.length > maxLeft) {
-    left = left.substring(0, maxLeft);
-  }
-  const spaces = Math.max(1, width - left.length - right.length);
-  return left + fill.repeat(spaces) + right;
+function centerText(text, width = 32) {
+  const clean = text.trim();
+  if (clean.length >= width) return clean.substring(0, width);
+  const left = Math.floor((width - clean.length) / 2);
+  return ' '.repeat(left) + clean;
 }
 
-function centerText(text, width) {
-  text = String(text || '').trim();
-  if (text.length >= width) return text.substring(0, width);
-  const leftPad = Math.floor((width - text.length) / 2);
-  const rightPad = width - text.length - leftPad;
-  return ' '.repeat(leftPad) + text + ' '.repeat(rightPad);
+function padLine(left, right, width = 32) {
+  const l = left.trim();
+  const r = right.trim();
+  const spaces = width - l.length - r.length;
+  if (spaces <= 0) return l.substring(0, width - r.length - 1) + ' ' + r;
+  return l + ' '.repeat(spaces) + r;
 }
 
 function generateReceiptPlainText(ticket) {
   const width = (STATE.settings.printerWidth === "80") ? 42 : 32;
   const sep = '='.repeat(width);
   const dash = '-'.repeat(width);
-  const dateStr = new Date(ticket.date).toLocaleString('fr-FR');
 
   let out = [];
   out.push(sep);
-  out.push(centerText(removeAccents(STATE.settings.shopName || "SYPOS COMMERCE").toUpperCase(), width));
+  out.push(centerText(removeAccents(STATE.settings.shopName || "SYPOS").toUpperCase(), width));
   if (STATE.settings.shopAddress) {
     out.push(centerText(removeAccents(STATE.settings.shopAddress), width));
   }
@@ -427,25 +594,21 @@ function generateReceiptPlainText(ticket) {
     out.push(centerText("Tel: " + removeAccents(STATE.settings.shopPhone), width));
   }
   out.push(sep);
-  out.push(padLine("Ticket:", ticket.number, width));
-  out.push(padLine("Date:", dateStr, width));
-  out.push(padLine("Vendeur:", removeAccents(STATE.settings.sellerName || "Caisse"), width));
+  out.push(padLine("Ticket N°: " + ticket.number, new Date(ticket.date).toLocaleDateString('fr-FR'), width));
+  if (STATE.settings.sellerName) {
+    out.push(padLine("Vendeur:", removeAccents(STATE.settings.sellerName), width));
+  }
+  if (ticket.customerName) {
+    out.push(padLine("Client:", removeAccents(ticket.customerName), width));
+  }
   out.push(dash);
 
   ticket.items.forEach(it => {
-    const name = removeAccents(it.productName);
-    const totalLine = (it.price * it.qty).toLocaleString('fr-FR') + ' F';
-    const qtyLine = `${it.qty}x${it.price.toLocaleString('fr-FR')}`;
-    
-    // Check if item fits in one line with dots
-    const leftText = `${name} (${qtyLine})`;
-    if (leftText.length + totalLine.length + 2 <= width) {
-      out.push(padLine(leftText, totalLine, width, '.'));
-    } else {
-      // Print name on first line, and qty + price on second line
-      out.push(name.substring(0, width));
-      out.push(padLine(`  ${qtyLine}`, totalLine, width, '.'));
-    }
+    const lineTotal = (it.price * it.qty).toLocaleString('fr-FR') + ' F';
+    const nameStr = removeAccents(it.productName);
+    const qtyPriceStr = `${it.qty}x ${it.price.toLocaleString('fr-FR')}`;
+    out.push(nameStr);
+    out.push(padLine("  " + qtyPriceStr, lineTotal, width));
   });
 
   out.push(dash);
@@ -467,7 +630,7 @@ function generateReceiptPlainText(ticket) {
     out.push(centerText(removeAccents(STATE.settings.publisherSignatureText || "SYPOS MOBILE 0758245530"), width));
   }
   
-  out.push('\n\n'); // Line feeds for paper cut
+  out.push('\n\n');
   return out.join('\n');
 }
 
@@ -491,6 +654,7 @@ function generateReceiptHtml(ticket) {
     <div class="receipt-row"><span>Ticket N°:</span><span>${ticket.number}</span></div>
     <div class="receipt-row"><span>Date:</span><span>${dateStr}</span></div>
     <div class="receipt-row"><span>Vendeur:</span><span>${STATE.settings.sellerName}</span></div>
+    ${ticket.customerName ? `<div class="receipt-row"><span>Client:</span><span style="font-weight:bold;">${ticket.customerName}</span></div>` : ''}
     <div class="receipt-divider"></div>
     ${itemsHtml}
     <div class="receipt-divider"></div>
@@ -498,7 +662,7 @@ function generateReceiptHtml(ticket) {
       <span>TOTAL NET :</span>
       <span>${ticket.totalAmount.toLocaleString('fr-FR')} CFA</span>
     </div>
-    <div class="receipt-row"><span>Règlement :</span><span>${ticket.paymentMethod.toUpperCase()}</span></div>
+    <div class="receipt-row"><span>Règlement :</span><span>${(ticket.paymentMethod || 'ESPECES').toUpperCase()}</span></div>
     ${ticket.cashReceived ? `<div class="receipt-row"><span>Reçu :</span><span>${ticket.cashReceived.toLocaleString('fr-FR')} CFA</span></div>` : ''}
     ${ticket.changeGiven ? `<div class="receipt-row"><span>Rendu :</span><span>${ticket.changeGiven.toLocaleString('fr-FR')} CFA</span></div>` : ''}
     <div class="receipt-divider"></div>
@@ -508,7 +672,7 @@ function generateReceiptHtml(ticket) {
 }
 
 // ==========================================
-// 6.2 Z-REPORT & CLÔTURE DE CAISSE
+// 7. Z-REPORT & CLÔTURE DE CAISSE
 // ==========================================
 function getZReportData() {
   const now = new Date();
@@ -521,7 +685,6 @@ function getZReportData() {
   let omSales = 0;
   let momoSales = 0;
   let cardSales = 0;
-  let creditSales = 0;
 
   STATE.tickets.forEach(t => {
     totalSales += t.totalAmount;
@@ -531,7 +694,6 @@ function getZReportData() {
     else if (m === 'om' || m === 'orange') omSales += t.totalAmount;
     else if (m === 'momo' || m === 'mtn') momoSales += t.totalAmount;
     else if (m === 'card' || m === 'carte') cardSales += t.totalAmount;
-    else if (m === 'credit') creditSales += t.totalAmount;
   });
 
   const totalExpenses = (STATE.expenses || []).reduce((sum, e) => sum + (e.amount || 0), 0);
@@ -547,7 +709,6 @@ function getZReportData() {
     omSales,
     momoSales,
     cardSales,
-    creditSales,
     netCashInDrawer
   };
 }
@@ -578,7 +739,6 @@ function generateZReportPlainText(zData) {
   if (zData.omSales > 0) out.push(padLine("  - Orange Money:", zData.omSales.toLocaleString('fr-FR') + ' F', width));
   if (zData.momoSales > 0) out.push(padLine("  - MTN MoMo:", zData.momoSales.toLocaleString('fr-FR') + ' F', width));
   if (zData.cardSales > 0) out.push(padLine("  - Carte Bancaire:", zData.cardSales.toLocaleString('fr-FR') + ' F', width));
-  if (zData.creditSales > 0) out.push(padLine("  - Ventes a Credit:", zData.creditSales.toLocaleString('fr-FR') + ' F', width));
   out.push(sep);
   out.push(padLine("CASH NET EN CAISSE :", zData.netCashInDrawer.toLocaleString('fr-FR') + ' CFA', width));
   out.push(sep);
@@ -609,7 +769,6 @@ function generateZReportHtml(zData) {
     ${zData.omSales > 0 ? `<div class="receipt-row"><span>🟠 Orange Money :</span><span>${zData.omSales.toLocaleString('fr-FR')} CFA</span></div>` : ''}
     ${zData.momoSales > 0 ? `<div class="receipt-row"><span>🟡 MTN MoMo :</span><span>${zData.momoSales.toLocaleString('fr-FR')} CFA</span></div>` : ''}
     ${zData.cardSales > 0 ? `<div class="receipt-row"><span>💳 Carte Bancaire :</span><span>${zData.cardSales.toLocaleString('fr-FR')} CFA</span></div>` : ''}
-    ${zData.creditSales > 0 ? `<div class="receipt-row"><span>📝 Ventes à Crédit :</span><span>${zData.creditSales.toLocaleString('fr-FR')} CFA</span></div>` : ''}
     <div class="receipt-divider"></div>
     <div class="receipt-row receipt-bold" style="font-size: 15px; background: #e8f5e9; padding: 6px; border-radius: 8px;">
       <span>CASH NET EN CAISSE :</span>
@@ -623,7 +782,7 @@ function generateZReportHtml(zData) {
 }
 
 function exportToCsv(filename, headers, rows) {
-  let csvContent = "\uFEFF"; // UTF-8 BOM for Excel / Numbers
+  let csvContent = "\uFEFF";
   csvContent += headers.map(h => `"${h}"`).join(";") + "\r\n";
   rows.forEach(r => {
     csvContent += r.map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(";") + "\r\n";
@@ -648,35 +807,19 @@ function createEscPosBarcodeLabelBytes(shopName, prodName, price, barcode) {
   const dHeightOn = [0x1B, 0x21, 0x10];
   const dHeightOff = [0x1B, 0x21, 0x00];
 
-  function strToBytes(str) {
-    const b = [];
-    const ascii = removeAccents(str);
-    for (let i = 0; i < ascii.length; i++) {
-      let c = ascii.charCodeAt(i);
-      b.push((c >= 32 && c <= 126) || c === 10 ? c : 32);
-    }
-    return b;
-  }
-
-  let textBytes = [
-    ...center, ...boldOn,
-    ...strToBytes((shopName || "SYPOS").toUpperCase() + "\n"),
-    ...boldOff,
-    ...strToBytes((prodName || "Article") + "\n"),
-    ...boldOn, ...dHeightOn,
-    ...strToBytes(price + " CFA\n"),
-    ...dHeightOff, ...boldOff
+  const textLines = [
+    ...center, ...boldOn, ...Array.from(removeAccents(shopName || "SYPOS")).map(c => c.charCodeAt(0)), 0x0A,
+    ...boldOff, ...Array.from(removeAccents(prodName || "Article")).map(c => c.charCodeAt(0)), 0x0A,
+    ...boldOn, ...dHeightOn, ...Array.from(price + " CFA").map(c => c.charCodeAt(0)), 0x0A,
+    ...boldOff, ...dHeightOff
   ];
 
   let barcodeBytes = [];
   const cleanCode = (barcode || '').replace(/[^0-9A-Za-z]/g, '');
   if (cleanCode.length > 0) {
-    const codeAscii = [];
-    for (let i = 0; i < cleanCode.length; i++) {
-      codeAscii.push(cleanCode.charCodeAt(i));
-    }
+    const codeAscii = Array.from(cleanCode).map(c => c.charCodeAt(0));
     barcodeBytes = [
-      0x1D, 0x68, 60, // GS h 60 (Height 60 dots)
+      0x1D, 0x68, 50, // GS h 50 (Height)
       0x1D, 0x77, 2,  // GS w 2 (Module width 2)
       0x1D, 0x48, 2,  // GS H 2 (HRI below barcode)
       0x1D, 0x6B, 73, codeAscii.length, ...codeAscii,
@@ -685,11 +828,11 @@ function createEscPosBarcodeLabelBytes(shopName, prodName, price, barcode) {
   }
 
   const footer = [0x0A, 0x0A, 0x1B, 0x64, 0x03];
-  return new Uint8Array([...init, ...textBytes, ...barcodeBytes, ...footer]);
+  return new Uint8Array([...init, ...textLines, ...barcodeBytes, ...footer]);
 }
 
 // ==========================================
-// 7. CRYPTOGRAPHIC LICENSE MANAGEMENT (RSA-2048)
+// 8. CRYPTOGRAPHIC LICENSE MANAGEMENT (RSA-2048)
 // ==========================================
 const RSA_PUBLIC_KEY_B64 = 
   "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAy4fzpl4lsQkScqSwHrAx" +
@@ -781,114 +924,327 @@ function validateLicenseToken(rawKey) {
 
 function isLicenseActive() {
   if (!STATE.settings.isLicensed) return false;
-  if (STATE.settings.licenseExpiryDate > 0 && Date.now() > STATE.settings.licenseExpiryDate) {
-    return false;
+  if (!STATE.settings.licenseKey) return false;
+  const res = validateLicenseToken(STATE.settings.licenseKey);
+  return res.isValid;
+}
+
+function showLicenseModal(closable = false) {
+  const modal = document.getElementById('modalLicense');
+  const btnClose = document.getElementById('btnCloseLicenseModal');
+  const devIdEl = document.getElementById('licenseDialogDevId');
+  if (devIdEl) devIdEl.textContent = getDeviceId();
+  if (btnClose) btnClose.style.display = closable ? 'block' : 'none';
+  modal.classList.add('active');
+}
+
+// ==========================================
+// 9. GOOGLE SHEETS ASYNC REMOTE SYNC
+// ==========================================
+async function syncTicketToGoogleSheets(ticket) {
+  if (!STATE.settings.googleSheetsSync || !STATE.settings.googleSheetsUrl) return;
+  try {
+    const payload = {
+      type: "SALE",
+      ticketNumber: ticket.number,
+      date: ticket.date,
+      sellerName: STATE.settings.sellerName || "",
+      customerName: ticket.customerName || "Client Comptoir",
+      items: ticket.items,
+      subTotal: ticket.subTotal || ticket.totalAmount,
+      discount: ticket.discount || 0,
+      taxAmount: ticket.taxAmount || 0,
+      totalAmount: ticket.totalAmount,
+      paymentMethod: ticket.paymentMethod
+    };
+    fetch(STATE.settings.googleSheetsUrl, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).catch(err => console.warn("Google Sheets sync warn:", err));
+  } catch (e) {
+    console.warn("Google Sheets sync error:", e);
   }
-  return true;
+}
+
+async function syncExpenseToGoogleSheets(expense) {
+  if (!STATE.settings.googleSheetsSync || !STATE.settings.googleSheetsUrl) return;
+  try {
+    fetch(STATE.settings.googleSheetsUrl, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "EXPENSE",
+        reason: expense.reason,
+        amount: expense.amount,
+        date: expense.date
+      })
+    }).catch(err => console.warn("Google Sheets expense sync warn:", err));
+  } catch (e) {
+    console.warn("Google Sheets expense sync error:", e);
+  }
 }
 
 // ==========================================
-// 8. ADMIN PIN SECURITY CHECK
+// 10. BACKUP & RESTORE UTILITIES
 // ==========================================
-function requestAdminPin(actionDesc, onSuccess) {
-  STATE.pendingPinAction = onSuccess;
-  document.getElementById('pinActionDescription').textContent = actionDesc;
-  document.getElementById('pinInputCode').value = '';
-  document.getElementById('modalPin').classList.add('active');
+function exportBackupJson() {
+  const backup = {
+    app: "SYPOS Mobile",
+    version: "2.3",
+    timestamp: Date.now(),
+    date: new Date().toISOString(),
+    settings: STATE.settings,
+    products: STATE.products,
+    categories: STATE.categories,
+    tickets: STATE.tickets,
+    customers: STATE.customers,
+    expenses: STATE.expenses,
+    promoCodes: STATE.promoCodes,
+    heldSales: STATE.heldSales
+  };
+
+  const str = JSON.stringify(backup, null, 2);
+  const blob = new Blob([str], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const dStr = new Date().toISOString().split('T')[0];
+  a.href = url;
+  a.download = `SYPOS_Backup_${dStr}_${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  alert("✅ Sauvegarde exportée avec succès !");
+}
+
+function restoreBackupJson(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      if (!parsed.products || !parsed.settings) {
+        alert("❌ Fichier de sauvegarde invalide ou corrompu !");
+        return;
+      }
+      if (!confirm("⚠️ Attention : Restaurer cette sauvegarde va remplacer les données actuelles de la caisse. Continuer ?")) {
+        return;
+      }
+      Object.assign(STATE.settings, parsed.settings || {});
+      STATE.products = parsed.products || [];
+      STATE.categories = parsed.categories || [];
+      STATE.tickets = parsed.tickets || [];
+      STATE.customers = (parsed.customers || []).map(c => ({
+        id: c.id || ("c_" + Math.random()),
+        name: c.name || "Client",
+        phone: c.phone || "",
+        email: c.email || "",
+        notes: c.notes || "",
+        totalSpent: c.totalSpent || 0,
+        visitCount: c.visitCount || 0,
+        lastPurchaseDate: c.lastPurchaseDate || null,
+        createdAt: c.createdAt || Date.now()
+      }));
+      STATE.expenses = parsed.expenses || [];
+      STATE.promoCodes = parsed.promoCodes || [];
+      STATE.heldSales = parsed.heldSales || [];
+      saveToStorage();
+      renderPos();
+      renderProducts();
+      renderHistory();
+      renderReports();
+      renderCustomers();
+      renderSettings();
+      alert("🎉 Restauration terminée avec succès ! Vos données ont été réinjectées.");
+    } catch (err) {
+      alert("❌ Erreur lors de la lecture du fichier : " + err);
+    }
+  };
+  reader.readAsText(file);
 }
 
 // ==========================================
-// 9. INITIALIZATION & EVENT LISTENERS
+// 11. WHATSAPP PNG & TEXT RECEIPT SHARING
+// ==========================================
+async function shareReceiptAsPng(ticket) {
+  const el = document.getElementById('receiptPaperContent');
+  if (!el) return;
+  
+  try {
+    if (typeof html2canvas === 'undefined') {
+      alert("⚠️ Conversion d'image indisponible. Utilisation du format texte.");
+      shareReceiptAsText(ticket);
+      return;
+    }
+
+    const canvas = await html2canvas(el, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      logging: false
+    });
+
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        shareReceiptAsText(ticket);
+        return;
+      }
+      
+      const fileName = `Ticket_${ticket.number || 'SYPOS'}.png`;
+      const file = new File([blob], fileName, { type: 'image/png' });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: `Ticket ${ticket.number} — ${STATE.settings.shopName}`,
+            text: `Bonjour, voici votre ticket de caisse ${ticket.number} chez ${STATE.settings.shopName}. Merci pour votre confiance !`
+          });
+          return;
+        } catch (shareErr) {
+          if (shareErr.name === 'AbortError') return;
+        }
+      }
+
+      // Download file fallback
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      const msg = `🧾 *Ticket N°: ${ticket.number} — ${STATE.settings.shopName}*\n💰 Total : ${ticket.totalAmount.toLocaleString('fr-FR')} CFA\n\n*(L'image PNG du ticket a été téléchargée sur votre téléphone pour l'envoyer directement en pièce jointe WhatsApp)*`;
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');
+    }, 'image/png');
+  } catch (err) {
+    console.error("Error generating receipt PNG:", err);
+    shareReceiptAsText(ticket);
+  }
+}
+
+function shareReceiptAsText(ticket) {
+  let text = `🧾 *${STATE.settings.shopName.toUpperCase()}*\n`;
+  if (STATE.settings.shopAddress) text += `📍 ${STATE.settings.shopAddress}\n`;
+  if (STATE.settings.shopPhone) text += `📞 ${STATE.settings.shopPhone}\n`;
+  text += `--------------------------------\n`;
+  text += `Ticket N°: ${ticket.number}\n`;
+  text += `Date: ${new Date(ticket.date).toLocaleString('fr-FR')}\n`;
+  if (ticket.customerName) text += `Client: ${ticket.customerName}\n`;
+  text += `--------------------------------\n`;
+  ticket.items.forEach(i => {
+    text += `${i.qty}x ${i.productName} = ${(i.price * i.qty).toLocaleString('fr-FR')} CFA\n`;
+  });
+  text += `--------------------------------\n`;
+  text += `*TOTAL NET : ${ticket.totalAmount.toLocaleString('fr-FR')} CFA*\n`;
+  text += `Règlement : ${(ticket.paymentMethod || 'ESPECES').toUpperCase()}\n`;
+  text += `\n${STATE.settings.receiptFooter}`;
+
+  window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+}
+
+function formatTimeAgo(timestamp) {
+  if (!timestamp) return 'Jamais';
+  const diff = Date.now() - timestamp;
+  const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+  if (days === 0) return "Aujourd'hui";
+  if (days === 1) return "Hier";
+  if (days < 7) return `Il y a ${days} jours`;
+  if (days < 30) return `Il y a ${Math.floor(days / 7)} sem.`;
+  return `Il y a ${Math.floor(days / 30)} mois`;
+}
+
+// ==========================================
+// 12. APP STARTUP & EVENT LISTENERS
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
   loadFromStorage();
   initTabs();
+
+  // Populate initial views
   renderPos();
+  renderProducts();
+  renderHistory();
+  renderReports();
+  renderCustomers();
+  renderTools();
+  renderSettings();
 
-  // License System Setup & Verification
-  const currentDevId = getDeviceId();
-  const licenseDevIdEl = document.getElementById('licenseDialogDevId');
-  if (licenseDevIdEl) licenseDevIdEl.textContent = currentDevId;
-
-  function showLicenseModal(isInitial = false) {
-    const modal = document.getElementById('modalLicense');
-    const closeBtn = document.getElementById('btnCloseLicenseModal');
-    if (closeBtn) closeBtn.style.display = isInitial ? 'none' : 'block';
-    const feedback = document.getElementById('licenseFeedbackMsg');
-    if (feedback) feedback.style.display = 'none';
-    modal.classList.add('active');
-  }
-
-  // Check License on Startup (Auto lock if unactivated)
-  if (!isLicenseActive()) {
-    showLicenseModal(true);
-  }
+  // Device ID in License Modal
+  const devIdEl = document.getElementById('licenseDialogDevId');
+  if (devIdEl) devIdEl.textContent = getDeviceId();
 
   // Copy Device ID button
   document.getElementById('btnCopyDeviceId').addEventListener('click', () => {
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(currentDevId).then(() => {
-        alert("📋 ID Appareil copié dans le presse-papier :\n" + currentDevId);
-      });
-    } else {
-      alert("Votre ID Appareil : " + currentDevId);
-    }
+    navigator.clipboard.writeText(getDeviceId()).then(() => {
+      alert("✅ Identifiant Appareil copié dans le presse-papier !");
+    }).catch(() => {
+      prompt("Copiez votre ID Appareil :", getDeviceId());
+    });
   });
 
   // WhatsApp Order License button
   document.getElementById('btnWhatsAppLicense').addEventListener('click', () => {
-    const phone = STATE.settings.shopPhone ? STATE.settings.shopPhone.replace(/[^0-9]/g, '') : "2250758245530";
-    const msg = `Bonjour SYPOS, je souhaite activer la licence commerciale pour mon appareil :\n🆔 ID Appareil : *${currentDevId}*`;
+    const id = getDeviceId();
+    const phone = "2250758245530";
+    const msg = `Bonjour SYPOS Mobile, je souhaite commander / activer une licence pour mon commerce.\n\nMon ID Appareil : *${id}*\nNom Boutique : ${STATE.settings.shopName}`;
     window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`, '_blank');
   });
 
-  // Validate License Button
+  // Validate License Key button
   document.getElementById('btnValidateLicense').addEventListener('click', () => {
-    const key = document.getElementById('inputLicenseKey').value;
-    const res = validateLicenseToken(key);
+    const key = document.getElementById('inputLicenseKey').value.trim();
     const feedback = document.getElementById('licenseFeedbackMsg');
-    feedback.style.display = 'block';
+    const res = validateLicenseToken(key);
+
     if (res.isValid) {
+      STATE.settings.isLicensed = true;
+      STATE.settings.licenseKey = key;
+      STATE.settings.licenseType = res.licenseType;
+      STATE.settings.licenseExpiryDate = res.expiryDate;
+      if (res.shopName) STATE.settings.shopName = res.shopName;
+      saveToStorage();
+      renderSettings();
+
+      feedback.style.display = 'block';
       feedback.style.background = '#e8f5e9';
       feedback.style.color = '#2e7d32';
       feedback.textContent = res.message;
-      STATE.settings.isLicensed = true;
-      STATE.settings.licenseKey = key.trim();
-      STATE.settings.licenseType = res.licenseType;
-      STATE.settings.licenseExpiryDate = res.expiryDate;
-      saveToStorage();
+
       setTimeout(() => {
         document.getElementById('modalLicense').classList.remove('active');
-        renderSettings();
+        feedback.style.display = 'none';
       }, 1500);
     } else {
+      feedback.style.display = 'block';
       feedback.style.background = '#ffebee';
       feedback.style.color = '#c62828';
       feedback.textContent = res.message;
     }
   });
 
-  // Scan License QR Code button
+  // Scan License QR
   document.getElementById('btnScanLicenseQr').addEventListener('click', () => {
-    document.getElementById('modalLicense').classList.remove('active');
     document.getElementById('modalScanner').classList.add('active');
     const qr = new Html5Qrcode("qr-reader");
     STATE.html5QrCode = qr;
-    qr.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, (token) => {
+    qr.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, (decodedText) => {
+      document.getElementById('inputLicenseKey').value = decodedText;
       qr.stop().then(() => {
         document.getElementById('modalScanner').classList.remove('active');
-        document.getElementById('inputLicenseKey').value = token;
-        document.getElementById('modalLicense').classList.add('active');
         document.getElementById('btnValidateLicense').click();
       });
     }).catch(err => {
-      alert("Impossible d'ouvrir la caméra : " + err);
+      alert("Erreur caméra : " + err);
       document.getElementById('modalScanner').classList.remove('active');
-      document.getElementById('modalLicense').classList.add('active');
     });
   });
 
-  // Demo Mode button
+  // Demo mode
   const btnDemo = document.getElementById('btnDemoMode');
   if (btnDemo) {
     btnDemo.addEventListener('click', () => {
@@ -896,16 +1252,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Open License Modal from Settings
+  // Settings: Open License Modal
   const btnOpenLicense = document.getElementById('btnOpenLicenseModal');
   if (btnOpenLicense) {
     btnOpenLicense.addEventListener('click', () => showLicenseModal(false));
   }
 
-  // Search input live filter
+  // Live POS search
   document.getElementById('posSearchInput').addEventListener('input', renderPos);
 
-  // Floating cart click
+  // Floating Cart Click
   document.getElementById('floatingCartBar').addEventListener('click', () => {
     renderCartModal();
     document.getElementById('modalCart').classList.add('active');
@@ -914,7 +1270,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Modal Close buttons
   document.querySelectorAll('.close-modal').forEach(btn => {
     btn.addEventListener('click', () => {
-      btn.closest('.modal-overlay').classList.remove('active');
+      const modal = btn.closest('.modal-overlay');
+      if (modal) modal.classList.remove('active');
     });
   });
 
@@ -923,11 +1280,31 @@ document.addEventListener('DOMContentLoaded', () => {
     requestAdminPin("Vider complètement le panier", () => {
       STATE.cart = [];
       STATE.appliedPromo = null;
-      document.getElementById('modalCart').classList.remove('active');
+      STATE.selectedCustomerId = "";
+      saveToStorage();
+      renderCartModal();
       updateFloatingCart();
-      renderPos();
+      document.getElementById('modalCart').classList.remove('active');
     });
   });
+
+  // Quick Customer Selection in Cart
+  const cartCustSelect = document.getElementById('cartCustomerSelect');
+  if (cartCustSelect) {
+    cartCustSelect.addEventListener('change', (e) => {
+      STATE.selectedCustomerId = e.target.value;
+      updateCartCustomerBadge();
+    });
+  }
+
+  // Quick Add Customer from Cart button
+  const btnQuickAddFromCart = document.getElementById('btnQuickAddCustFromCart');
+  if (btnQuickAddFromCart) {
+    btnQuickAddFromCart.addEventListener('click', () => {
+      pendingQuickAddFromCart = true;
+      openCustomerModal(null);
+    });
+  }
 
   // Checkout button
   document.getElementById('btnGoToCheckout').addEventListener('click', () => {
@@ -937,12 +1314,17 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('payCashReceivedInput').value = '';
     document.getElementById('payChangeDueBox').style.display = 'none';
 
-    // Populate customers
-    const custSelect = document.getElementById('payCustomerSelect');
-    custSelect.innerHTML = '<option value="">Client Comptant</option>';
-    STATE.customers.forEach(c => {
-      custSelect.innerHTML += `<option value="${c.id}">${c.name}</option>`;
-    });
+    // Show assigned customer if any
+    const assignedBadge = document.getElementById('payAssignedCustomerBadge');
+    if (assignedBadge) {
+      const cust = STATE.customers.find(c => c.id === STATE.selectedCustomerId);
+      if (cust) {
+        assignedBadge.style.display = 'block';
+        assignedBadge.textContent = `👤 Client associé : ${cust.name}`;
+      } else {
+        assignedBadge.style.display = 'none';
+      }
+    }
 
     document.getElementById('modalPayment').classList.add('active');
   });
@@ -950,9 +1332,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Payment Method change
   document.getElementById('payPaymentMethod').addEventListener('change', (e) => {
     const isCash = e.target.value === 'cash';
-    const isCredit = e.target.value === 'credit';
     document.getElementById('payCashReceivedGroup').style.display = isCash ? 'block' : 'none';
-    document.getElementById('payCustomerGroup').style.display = isCredit ? 'block' : 'none';
   });
 
   // Cash Received live calculation
@@ -976,6 +1356,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const change = Math.max(0, rec - total);
 
     const ticketNumber = "TK-" + String(STATE.tickets.length + 1).padStart(5, '0');
+    const assignedCustomer = STATE.customers.find(c => c.id === STATE.selectedCustomerId);
+
     const ticket = {
       id: "t_" + Date.now(),
       number: ticketNumber,
@@ -985,12 +1367,14 @@ document.addEventListener('DOMContentLoaded', () => {
         productName: i.product.name,
         qty: i.qty,
         price: i.product.salePrice,
-        costPrice: i.product.costPrice
+        costPrice: i.product.costPrice || 0
       })),
       totalAmount: total,
       paymentMethod: method,
       cashReceived: method === 'cash' ? rec : null,
       changeGiven: method === 'cash' ? change : null,
+      customerId: assignedCustomer ? assignedCustomer.id : null,
+      customerName: assignedCustomer ? assignedCustomer.name : null,
       status: 'completed'
     };
 
@@ -1000,44 +1384,33 @@ document.addEventListener('DOMContentLoaded', () => {
       if (prod) prod.stock -= i.qty;
     });
 
+    // Update Customer CRM statistics if attached
+    if (assignedCustomer) {
+      assignedCustomer.totalSpent = (assignedCustomer.totalSpent || 0) + total;
+      assignedCustomer.visitCount = (assignedCustomer.visitCount || 0) + 1;
+      assignedCustomer.lastPurchaseDate = Date.now();
+    }
+
     STATE.tickets.unshift(ticket);
     STATE.cart = [];
     STATE.appliedPromo = null;
+    STATE.selectedCustomerId = "";
     saveToStorage();
+
+    // Async Google Sheets Sync
+    syncTicketToGoogleSheets(ticket);
 
     document.getElementById('modalPayment').classList.remove('active');
     updateFloatingCart();
     renderPos();
+    renderCustomers();
 
-    // Show Receipt
+    // Show Receipt Modal
     document.getElementById('receiptPaperContent').innerHTML = generateReceiptHtml(ticket);
     document.getElementById('modalReceipt').classList.add('active');
   });
 
-function createEscPosTicketBytes(plainText) {
-  // ESC/POS Commands:
-  // 0x1B 0x40 = ESC @ (Initialize printer hardware)
-  // 0x1C 0x2E = FS . (Cancel Chinese/Kanji double-byte mode)
-  // 0x1B 0x74 0x00 = ESC t 0 (Select Code Page 0: CP437 Standard Western ASCII)
-  const header = [0x1B, 0x40, 0x1C, 0x2E, 0x1B, 0x74, 0x00];
-
-  const body = [];
-  for (let i = 0; i < plainText.length; i++) {
-    const code = plainText.charCodeAt(i);
-    // Printable standard ASCII (32 to 126), newline (10), carriage return (13)
-    if (code === 10 || code === 13 || (code >= 32 && code <= 126)) {
-      body.push(code);
-    } else {
-      body.push(32); // Space for unknown multi-byte characters
-    }
-  }
-
-  // Paper Feed & Tear Space: Clean short advance (1 feed line only)
-  const footer = [0x0A, 0x1B, 0x64, 0x01];
-  return new Uint8Array([...header, ...body, ...footer]);
-}
-
-  // Direct Bluetooth ESC/POS Print button (Works with Web Bluetooth / Bluefy Browser / Chrome)
+  // Direct Bluetooth ESC/POS Print button
   const btnBleDirect = document.getElementById('btnPrintBleDirectBtn');
   if (btnBleDirect) {
     btnBleDirect.addEventListener('click', async () => {
@@ -1052,18 +1425,28 @@ function createEscPosTicketBytes(plainText) {
     });
   }
 
-  // Print Receipt Button (Standard / AirPrint / PDF)
+  // Print Receipt Button (Standard AirPrint/PDF)
   document.getElementById('btnPrintReceiptBtn').addEventListener('click', () => {
     window.print();
   });
 
-  // WhatsApp Share Receipt
-  document.getElementById('btnShareWhatsAppBtn').addEventListener('click', () => {
-    if (STATE.tickets.length === 0) return;
-    const t = STATE.tickets[0];
-    let text = `*${STATE.settings.shopName}*\nTicket N°: ${t.number}\nDate: ${new Date(t.date).toLocaleDateString('fr-FR')}\nTotal: ${t.totalAmount} CFA\nMerci de votre confiance !`;
-    window.location.href = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-  });
+  // WhatsApp Share Receipt as PNG Image
+  const btnShareWhatsAppPng = document.getElementById('btnShareWhatsAppPngBtn');
+  if (btnShareWhatsAppPng) {
+    btnShareWhatsAppPng.addEventListener('click', () => {
+      if (STATE.tickets.length === 0) return;
+      shareReceiptAsPng(STATE.tickets[0]);
+    });
+  }
+
+  // WhatsApp Share Receipt as Text
+  const btnShareWhatsAppText = document.getElementById('btnShareWhatsAppTextBtn');
+  if (btnShareWhatsAppText) {
+    btnShareWhatsAppText.addEventListener('click', () => {
+      if (STATE.tickets.length === 0) return;
+      shareReceiptAsText(STATE.tickets[0]);
+    });
+  }
 
   // Admin PIN submission
   document.getElementById('btnSubmitPin').addEventListener('click', () => {
@@ -1148,135 +1531,224 @@ function createEscPosTicketBytes(plainText) {
       try {
         const devices = await navigator.bluetooth.getDevices();
         if (devices && devices.length > 0) {
-          const dev = devices[0];
-          if (!dev.gatt.connected) {
-            console.log("Tentative de reconnexion automatique à :", dev.name);
-            const server = await dev.gatt.connect();
+          const lastId = localStorage.getItem('last_ble_device_id');
+          const target = devices.find(d => d.id === lastId) || devices[0];
+          if (target && target.gatt && !target.gatt.connected) {
+            console.log("Auto-reconnecting to thermal printer:", target.name);
+            const server = await target.gatt.connect();
             const services = await server.getPrimaryServices();
-            for (const s of services) {
+            for (let s of services) {
               const chars = await s.getCharacteristics();
-              for (const c of chars) {
+              for (let c of chars) {
                 if (c.properties.write || c.properties.writeWithoutResponse) {
+                  STATE.bleDevice = target;
                   STATE.bleCharacteristic = c;
-                  STATE.bleDevice = dev;
-                  updateBleHeaderStatus(true, dev.name);
-                  console.log("✅ Imprimante Bluetooth reconnectée automatiquement !");
-                  return;
+                  console.log("Bluetooth thermal printer reconnected silently!");
+                  break;
                 }
               }
             }
           }
         }
-      } catch (e) {
-        console.warn("Auto-reconnect silent fail:", e);
+      } catch (err) {
+        console.warn("Silent BLE reconnect error:", err);
       }
     }
   }
 
   autoReconnectBluetooth();
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) autoReconnectBluetooth();
+    if (document.visibilityState === 'visible') autoReconnectBluetooth();
   });
   window.addEventListener('focus', autoReconnectBluetooth);
 
-  // Bluetooth button in header (Android / Chrome Web Bluetooth)
   document.getElementById('btnHeaderBle').addEventListener('click', connectBluetoothPrinter);
 
-  // Settings Save
+  // Settings Save button
   document.getElementById('btnSaveSettings').addEventListener('click', () => {
-    STATE.settings.shopName = document.getElementById('setShopName').value;
-    STATE.settings.shopAddress = document.getElementById('setShopAddress').value;
-    STATE.settings.shopPhone = document.getElementById('setShopPhone').value;
-    STATE.settings.sellerName = document.getElementById('setSellerName').value;
-    STATE.settings.receiptFooter = document.getElementById('setReceiptFooter').value;
+    STATE.settings.shopName = document.getElementById('setShopName').value.trim() || "SYPOS COMMERCE";
+    STATE.settings.shopAddress = document.getElementById('setShopAddress').value.trim();
+    STATE.settings.shopPhone = document.getElementById('setShopPhone').value.trim();
+    STATE.settings.sellerName = document.getElementById('setSellerName').value.trim() || "Vendeur";
+    STATE.settings.receiptFooter = document.getElementById('setReceiptFooter').value.trim() || "Merci de votre visite !";
     STATE.settings.showPublisherSignature = document.getElementById('setShowSignature').checked;
     STATE.settings.taxEnabled = document.getElementById('setTaxEnabled').checked;
-    STATE.settings.adminPin = document.getElementById('setAdminPin').value || "1234";
+    STATE.settings.adminPin = document.getElementById('setAdminPin').value.trim() || "1234";
     STATE.settings.printerWidth = document.getElementById('setPrinterWidth').value || "58";
+    
+    // Google Sheets Settings
+    STATE.settings.googleSheetsUrl = (document.getElementById('setGoogleSheetsUrl') ? document.getElementById('setGoogleSheetsUrl').value : '').trim();
+    STATE.settings.googleSheetsSync = document.getElementById('setGoogleSheetsSync') ? document.getElementById('setGoogleSheetsSync').checked : false;
+
     saveToStorage();
     alert("✅ Paramètres enregistrés avec succès !");
   });
 
-  // Reset database button
+  // Settings: Reset Database
   const btnReset = document.getElementById('btnResetDatabase');
   if (btnReset) {
     btnReset.addEventListener('click', () => {
-      requestAdminPin("Vider toutes les données (Remise à zéro)", () => {
-        STATE.products = [];
-        STATE.tickets = [];
-        STATE.expenses = [];
-        STATE.heldSales = [];
-        STATE.customers = [];
-        STATE.cart = [];
-        saveToStorage();
-        renderPos();
-        renderProducts();
-        renderHistory();
-        renderReports();
-        renderCustomers();
-        alert("✅ Données remises à zéro ! Vous pouvez maintenant ajouter vos vrais articles.");
+      requestAdminPin("Réinitialiser complètement la base de données", () => {
+        if (confirm("⚠️ Êtes-vous ABSOLUMENT certain de vouloir effacer toutes les données ?")) {
+          localStorage.removeItem('sypos_data_v2');
+          location.reload();
+        }
       });
     });
   }
 
-  // ==========================================
-  // HELD SALES (PAUSE & RESUME)
-  // ==========================================
-  function updateHeldBadge() {
-    const badge = document.getElementById('heldBadge');
-    if (badge) {
-      if (STATE.heldSales && STATE.heldSales.length > 0) {
-        badge.style.display = 'block';
-        badge.textContent = STATE.heldSales.length;
-      } else {
-        badge.style.display = 'none';
-      }
-    }
+  // Settings: Backup & Restore buttons
+  const btnExportBackup = document.getElementById('btnExportBackupJson');
+  if (btnExportBackup) {
+    btnExportBackup.addEventListener('click', exportBackupJson);
   }
-  updateHeldBadge();
 
+  const btnImportBackup = document.getElementById('btnImportBackupJson');
+  const inputRestoreFile = document.getElementById('inputRestoreBackupFile');
+  if (btnImportBackup && inputRestoreFile) {
+    btnImportBackup.addEventListener('click', () => {
+      inputRestoreFile.click();
+    });
+    inputRestoreFile.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files[0]) {
+        restoreBackupJson(e.target.files[0]);
+        e.target.value = '';
+      }
+    });
+  }
+
+  const btnShareBackupWA = document.getElementById('btnShareBackupWhatsApp');
+  if (btnShareBackupWA) {
+    btnShareBackupWA.addEventListener('click', () => {
+      exportBackupJson();
+      const phone = STATE.settings.shopPhone ? STATE.settings.shopPhone.replace(/[^0-9]/g, '') : '';
+      const text = `💾 *SAUVEGARDE SYPOS MOBILE*\nBoutique : ${STATE.settings.shopName}\nDate : ${new Date().toLocaleString('fr-FR')}\nLe fichier de sauvegarde a été téléchargé pour être archivé.`;
+      window.open(`https://api.whatsapp.com/send?${phone ? 'phone=' + phone + '&' : ''}text=${encodeURIComponent(text)}`, '_blank');
+    });
+  }
+
+  // Google Sheets Test Connection button
+  const btnTestSheets = document.getElementById('btnTestGoogleSheets');
+  if (btnTestSheets) {
+    btnTestSheets.addEventListener('click', async () => {
+      const url = (document.getElementById('setGoogleSheetsUrl') ? document.getElementById('setGoogleSheetsUrl').value : '').trim();
+      if (!url) {
+        alert("⚠️ Veuillez d'abord renseigner l'URL Webhook Apps Script !");
+        return;
+      }
+      try {
+        btnTestSheets.textContent = "⏳ Test en cours...";
+        await fetch(url, {
+          method: "POST",
+          mode: "no-cors",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "TEST" })
+        });
+        btnTestSheets.textContent = "🧪 Tester Connexion";
+        alert("✅ Signal envoyé à Google Apps Script ! Vérifiez votre classeur Google Sheets.");
+      } catch (err) {
+        btnTestSheets.textContent = "🧪 Tester Connexion";
+        alert("❌ Erreur de connexion : " + err.message);
+      }
+    });
+  }
+
+  // Google Sheets Apps Script Modal & Copy button
+  const btnOpenAppsScriptModal = document.getElementById('btnOpenAppsScriptModal');
+  const modalAppsScript = document.getElementById('modalAppsScript');
+  const txtAppsScriptCode = document.getElementById('txtAppsScriptCode');
+  const btnCopyAppsScript = document.getElementById('btnCopyAppsScriptCodeSubmit');
+
+  if (btnOpenAppsScriptModal && modalAppsScript) {
+    btnOpenAppsScriptModal.addEventListener('click', () => {
+      if (txtAppsScriptCode) txtAppsScriptCode.value = APPS_SCRIPT_TEMPLATE;
+      modalAppsScript.classList.add('active');
+    });
+  }
+
+  if (btnCopyAppsScript && txtAppsScriptCode) {
+    btnCopyAppsScript.addEventListener('click', () => {
+      navigator.clipboard.writeText(APPS_SCRIPT_TEMPLATE).then(() => {
+        alert("📋 Code Google Apps Script copié dans le presse-papier !");
+      }).catch(() => {
+        txtAppsScriptCode.select();
+        document.execCommand('copy');
+        alert("📋 Code copié !");
+      });
+    });
+  }
+
+  // Apply promo code
+  const btnPromo = document.getElementById('btnApplyPromo');
+  if (btnPromo) {
+    btnPromo.addEventListener('click', () => {
+      const code = document.getElementById('cartPromoInput').value.trim().toUpperCase();
+      if (!code) return;
+      if (code === "SOLDES10" || code === "PROMO10") {
+        STATE.appliedPromo = { code, discountPercent: 10 };
+        document.getElementById('cartPromoBadge').style.display = 'block';
+        document.getElementById('cartPromoBadge').textContent = `✅ Remise ${code} appliquée (-10%)`;
+      } else if (code === "REMISE500") {
+        STATE.appliedPromo = { code, discountAmount: 500 };
+        document.getElementById('cartPromoBadge').style.display = 'block';
+        document.getElementById('cartPromoBadge').textContent = `✅ Remise ${code} appliquée (-500 CFA)`;
+      } else {
+        alert("❌ Code promo invalide ou expiré !");
+      }
+      renderCartModal();
+    });
+  }
+
+  // Held Sales functionality
   function renderHeldSales() {
     const container = document.getElementById('heldSalesListContainer');
     container.innerHTML = '';
     if (!STATE.heldSales || STATE.heldSales.length === 0) {
-      container.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:20px;">Aucune vente en attente</div>';
+      container.innerHTML = '<div style="text-align:center; padding: 20px; color: var(--text-muted);">Aucune vente en attente.</div>';
       return;
     }
-    STATE.heldSales.forEach((h, idx) => {
+    STATE.heldSales.forEach((h, index) => {
       const card = document.createElement('div');
       card.className = 'card-group';
       card.style.marginBottom = '10px';
+      const itemsSummary = h.cart.map(i => `${i.product.name} (x${i.qty})`).join(', ');
       card.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <div>
-            <div style="font-weight:700; font-size:14px;">Vente #${idx + 1} (${h.items.length} articles)</div>
-            <div style="font-size:11px; color:var(--text-muted);">${new Date(h.date).toLocaleTimeString('fr-FR')}</div>
-          </div>
-          <div style="font-size:16px; font-weight:800; color:var(--primary);">${h.total.toLocaleString('fr-FR')} CFA</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <div style="font-weight:700; font-size:14px;">Panier N°${index + 1} (${h.cart.length} articles)</div>
+          <div style="font-size:12px; color:var(--text-muted);">${new Date(h.date).toLocaleTimeString('fr-FR')}</div>
         </div>
-        <div style="display:flex; gap:8px; margin-top:10px;">
-          <button class="btn-main resume-held-btn" data-id="${h.id}" style="margin:0; height:36px; font-size:13px;">▶️ Reprendre</button>
-          <button class="btn-main btn-secondary del-held-btn" data-id="${h.id}" style="margin:0; width:auto; height:36px; color:var(--danger);">🗑️</button>
+        <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">${itemsSummary}</div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-main resume-held-btn" style="margin:0; flex:1; font-size:13px; height:38px;">▶️ Reprendre</button>
+          <button class="btn-main btn-danger del-held-btn" style="margin:0; width:auto; font-size:13px; height:38px; padding:0 12px;">🗑️</button>
         </div>
       `;
+
       card.querySelector('.resume-held-btn').addEventListener('click', () => {
         if (STATE.cart.length > 0) {
-          if (!confirm("Le panier actuel sera remplacé par cette vente en attente. Continuer ?")) return;
+          if (!confirm("⚠️ Votre panier actuel contient déjà des articles. Les remplacer par la vente en attente ?")) return;
         }
-        STATE.cart = h.items;
-        STATE.heldSales = STATE.heldSales.filter(x => x.id !== h.id);
+        STATE.cart = h.cart;
+        STATE.appliedPromo = h.appliedPromo;
+        STATE.selectedCustomerId = h.selectedCustomerId || "";
+        STATE.heldSales.splice(index, 1);
         saveToStorage();
-        updateHeldBadge();
         updateFloatingCart();
         renderPos();
         document.getElementById('modalHeldSales').classList.remove('active');
+        renderCartModal();
+        document.getElementById('modalCart').classList.add('active');
       });
+
       card.querySelector('.del-held-btn').addEventListener('click', () => {
-        STATE.heldSales = STATE.heldSales.filter(x => x.id !== h.id);
-        saveToStorage();
-        updateHeldBadge();
-        renderHeldSales();
+        if (confirm("Supprimer cette vente en attente ?")) {
+          STATE.heldSales.splice(index, 1);
+          saveToStorage();
+          renderHeldSales();
+          updateFloatingCart();
+        }
       });
+
       container.appendChild(card);
     });
   }
@@ -1289,81 +1761,83 @@ function createEscPosTicketBytes(plainText) {
     });
   }
 
-  const btnHoldCart = document.getElementById('btnHoldCurrentCartBtn');
-  if (btnHoldCart) {
-    btnHoldCart.addEventListener('click', () => {
-      if (!STATE.cart || STATE.cart.length === 0) {
-        alert("⚠️ Le panier est vide !");
-        return;
-      }
-      const heldItem = {
-        id: "held_" + Date.now(),
-        date: new Date().toISOString(),
-        items: [...STATE.cart],
-        total: getCartTotal()
-      };
-      if (!STATE.heldSales) STATE.heldSales = [];
-      STATE.heldSales.push(heldItem);
-      STATE.cart = [];
-      STATE.appliedPromo = null;
-      saveToStorage();
-      updateHeldBadge();
-      updateFloatingCart();
-      renderPos();
-      document.getElementById('modalHeldSales').classList.remove('active');
-      alert("⏸️ Vente mise en attente avec succès !");
+  const btnHoldCart = document.getElementById('btnHoldCurrentSale');
+  const btnHoldCartModal = document.getElementById('btnHoldCurrentCartBtn');
+  function handleHoldCartAction() {
+    if (STATE.cart.length === 0) {
+      alert("⚠️ Le panier est vide.");
+      return;
+    }
+    if (!STATE.heldSales) STATE.heldSales = [];
+    STATE.heldSales.unshift({
+      id: "held_" + Date.now(),
+      date: new Date().toISOString(),
+      cart: [...STATE.cart],
+      appliedPromo: STATE.appliedPromo,
+      selectedCustomerId: STATE.selectedCustomerId
     });
+    STATE.cart = [];
+    STATE.appliedPromo = null;
+    STATE.selectedCustomerId = "";
+    saveToStorage();
+    updateFloatingCart();
+    renderPos();
+    document.getElementById('modalCart').classList.remove('active');
+    document.getElementById('modalHeldSales').classList.remove('active');
+    alert("⏸️ Panier mis en attente ! Vous pouvez le reprendre à tout moment via le bouton ⏸️ en haut.");
   }
+  if (btnHoldCart) btnHoldCart.addEventListener('click', handleHoldCartAction);
+  if (btnHoldCartModal) btnHoldCartModal.addEventListener('click', handleHoldCartAction);
 
-  // ==========================================
-  // RAPPORT Z & CLÔTURE DE CAISSE
-  // ==========================================
+  // Trigger Z-Report Modal
   const btnTriggerZ = document.getElementById('btnTriggerZReport');
   if (btnTriggerZ) {
     btnTriggerZ.addEventListener('click', () => {
-      const zData = getZReportData();
-      document.getElementById('zReportPaperContent').innerHTML = generateZReportHtml(zData);
-      document.getElementById('modalZReport').classList.add('active');
+      requestAdminPin("Clôturer la caisse (Rapport Z)", () => {
+        const z = getZReportData();
+        document.getElementById('zReportPaperContent').innerHTML = generateZReportHtml(z);
+        document.getElementById('modalZReport').classList.add('active');
+      });
     });
   }
 
+  // Print Z-Report BLE
   const btnPrintZBle = document.getElementById('btnPrintZReportBleBtn');
   if (btnPrintZBle) {
     btnPrintZBle.addEventListener('click', async () => {
-      const zData = getZReportData();
-      const plainText = generateZReportPlainText(zData);
+      const z = getZReportData();
+      const plainText = generateZReportPlainText(z);
       const rawBytes = createEscPosTicketBytes(plainText);
       const ok = await sendToPrinter(rawBytes);
       if (ok) alert("✅ Rapport Z imprimé avec succès !");
     });
   }
 
+  // Export Z-Report PDF
   const btnExportZPdf = document.getElementById('btnExportZReportPdf');
   if (btnExportZPdf) {
     btnExportZPdf.addEventListener('click', () => {
-      const zData = getZReportData();
+      const z = getZReportData();
       const win = window.open('', '_blank');
       win.document.write(`
-        <html><head><title>Rapport Z - ${zData.dateText}</title>
-        <style>body { font-family: monospace; padding: 20px; max-width: 400px; margin: auto; }</style>
+        <html><head><title>Rapport Z de Caisse</title>
+        <style>body { font-family: sans-serif; padding: 20px; max-width: 400px; margin: auto; }</style>
         </head><body>
-        ${generateZReportHtml(zData)}
-        <script>window.print();</script>
-        </body></html>
+        ${generateZReportHtml(z)}
+        <script>window.print();</script></body></html>
       `);
       win.document.close();
     });
   }
 
+  // Export Z-Report CSV
   const btnExportZCsv = document.getElementById('btnExportZReportCsv');
   if (btnExportZCsv) {
     btnExportZCsv.addEventListener('click', () => {
       const z = getZReportData();
-      const headers = ["Indicateur", "Valeur"];
+      const headers = ["Poste", "Montant"];
       const rows = [
         ["Date Cloture", z.dateText],
-        ["Boutique", STATE.settings.shopName],
-        ["Responsable", STATE.settings.sellerName],
         ["Total Ventes", z.totalSales + " CFA"],
         ["Nombre de Tickets", z.ticketsCount],
         ["Total Depenses", z.totalExpenses + " CFA"],
@@ -1372,7 +1846,6 @@ function createEscPosTicketBytes(plainText) {
         ["Orange Money", z.omSales + " CFA"],
         ["MTN MoMo", z.momoSales + " CFA"],
         ["Carte Bancaire", z.cardSales + " CFA"],
-        ["Ventes a Credit", z.creditSales + " CFA"],
         ["Net Cash en Caisse", z.netCashInDrawer + " CFA"]
       ];
       exportToCsv(`Rapport_Z_${Date.now()}.csv`, headers, rows);
@@ -1441,7 +1914,6 @@ function createEscPosTicketBytes(plainText) {
       }
 
       if (id) {
-        // Edit existing
         const p = STATE.products.find(x => x.id === id);
         if (p) {
           p.name = name;
@@ -1452,7 +1924,6 @@ function createEscPosTicketBytes(plainText) {
           p.barcode = barcode;
         }
       } else {
-        // Create new
         const newP = {
           id: "p_" + Date.now(),
           name,
@@ -1478,25 +1949,27 @@ function createEscPosTicketBytes(plainText) {
   if (btnDelProdModal) {
     btnDelProdModal.addEventListener('click', () => {
       const id = document.getElementById('prodEditId').value;
-      if (!id) return;
-      requestAdminPin("Supprimer définitivement cet article", () => {
-        STATE.products = STATE.products.filter(x => x.id !== id);
+      if (id && confirm("Êtes-vous sûr de vouloir supprimer cet article du catalogue ?")) {
+        STATE.products = STATE.products.filter(p => p.id !== id);
         saveToStorage();
         renderProducts();
         renderPos();
         renderTools();
         document.getElementById('modalProduct').classList.remove('active');
-        alert("🗑️ Article supprimé !");
-      });
+      }
     });
   }
 
   const btnAddCat = document.getElementById('btnAddCategoryPrompt');
   if (btnAddCat) {
     btnAddCat.addEventListener('click', () => {
-      const name = prompt("Nom de la nouvelle catégorie :");
-      if (name && name.trim()) {
-        const newCat = { id: "cat_" + Date.now(), name: name.trim(), color: "#0D9488" };
+      const catName = prompt("Nom de la nouvelle catégorie :");
+      if (catName && catName.trim()) {
+        const newCat = {
+          id: "cat_" + Date.now(),
+          name: catName.trim(),
+          color: "#0D9488"
+        };
         if (!STATE.categories) STATE.categories = [];
         STATE.categories.push(newCat);
         saveToStorage();
@@ -1505,6 +1978,7 @@ function createEscPosTicketBytes(plainText) {
     });
   }
 
+  // Barcode Scanner inside Product Modal (Preserves all fields without wiping)
   const btnScanProdBarcode = document.getElementById('btnScanBarcodeForProduct');
   if (btnScanProdBarcode) {
     btnScanProdBarcode.addEventListener('click', () => {
@@ -1512,9 +1986,11 @@ function createEscPosTicketBytes(plainText) {
       const qr = new Html5Qrcode("qr-reader");
       STATE.html5QrCode = qr;
       qr.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, (decodedText) => {
+        document.getElementById('prodInputBarcode').value = decodedText;
         qr.stop().then(() => {
           document.getElementById('modalScanner').classList.remove('active');
-          document.getElementById('prodInputBarcode').value = decodedText;
+        }).catch(() => {
+          document.getElementById('modalScanner').classList.remove('active');
         });
       }).catch(err => {
         alert("Impossible d'ouvrir la caméra : " + err);
@@ -1541,17 +2017,22 @@ function createEscPosTicketBytes(plainText) {
       const reason = document.getElementById('expenseInputReason').value.trim();
       const amount = parseFloat(document.getElementById('expenseInputAmount').value) || 0;
       if (!reason || amount <= 0) {
-        alert("⚠️ Veuillez saisir le motif et un montant valide !");
+        alert("⚠️ Veuillez renseigner le motif et un montant valide !");
         return;
       }
       if (!STATE.expenses) STATE.expenses = [];
-      STATE.expenses.unshift({
-        id: "exp_" + Date.now(),
+      const exp = {
+        id: "e_" + Date.now(),
         reason,
         amount,
         date: new Date().toISOString()
-      });
+      };
+      STATE.expenses.unshift(exp);
       saveToStorage();
+      
+      // Async Google Sheets Sync
+      syncExpenseToGoogleSheets(exp);
+
       renderReports();
       document.getElementById('modalExpense').classList.remove('active');
       alert("💸 Dépense enregistrée avec succès !");
@@ -1559,54 +2040,231 @@ function createEscPosTicketBytes(plainText) {
   }
 
   // ==========================================
-  // CUSTOMER CREATION
+  // CUSTOMER CRM CRUD & RELANCES
   // ==========================================
+  function openCustomerModal(cust = null) {
+    const isEdit = !!cust;
+    document.getElementById('modalCustomerTitle').textContent = isEdit ? "👤 Modifier la Fiche Client" : "👤 Nouveau Client";
+    document.getElementById('custEditId').value = isEdit ? cust.id : "";
+    document.getElementById('custInputName').value = isEdit ? cust.name : "";
+    document.getElementById('custInputPhone').value = isEdit ? cust.phone : "";
+    document.getElementById('custInputEmail').value = isEdit ? (cust.email || "") : "";
+    document.getElementById('custInputNotes').value = isEdit ? (cust.notes || "") : "";
+
+    const btnDel = document.getElementById('btnDeleteCustomerModal');
+    if (btnDel) btnDel.style.display = isEdit ? 'block' : 'none';
+
+    document.getElementById('modalCustomer').classList.add('active');
+  }
+
   const btnAddCust = document.getElementById('btnAddCustomer');
   if (btnAddCust) {
     btnAddCust.addEventListener('click', () => {
-      document.getElementById('custInputName').value = '';
-      document.getElementById('custInputPhone').value = '';
-      document.getElementById('custInputDebt').value = '';
-      document.getElementById('modalCustomer').classList.add('active');
+      pendingQuickAddFromCart = false;
+      openCustomerModal(null);
     });
   }
 
   const btnSaveCust = document.getElementById('btnSaveCustomerSubmit');
   if (btnSaveCust) {
     btnSaveCust.addEventListener('click', () => {
+      const id = document.getElementById('custEditId').value;
       const name = document.getElementById('custInputName').value.trim();
       const phone = document.getElementById('custInputPhone').value.trim();
-      const debt = parseFloat(document.getElementById('custInputDebt').value) || 0;
+      const email = document.getElementById('custInputEmail').value.trim();
+      const notes = document.getElementById('custInputNotes').value.trim();
+
       if (!name) {
         alert("⚠️ Veuillez saisir le nom du client !");
         return;
       }
+      if (!phone) {
+        alert("⚠️ Veuillez saisir le numéro de téléphone / WhatsApp !");
+        return;
+      }
+
       if (!STATE.customers) STATE.customers = [];
-      STATE.customers.unshift({
-        id: "c_" + Date.now(),
-        name,
-        phone,
-        debt
-      });
+
+      let savedCustomerId = id;
+
+      if (id) {
+        const c = STATE.customers.find(x => x.id === id);
+        if (c) {
+          c.name = name;
+          c.phone = phone;
+          c.email = email;
+          c.notes = notes;
+        }
+      } else {
+        const newCust = {
+          id: "c_" + Date.now(),
+          name,
+          phone,
+          email,
+          notes,
+          totalSpent: 0,
+          visitCount: 0,
+          lastPurchaseDate: null,
+          createdAt: Date.now()
+        };
+        STATE.customers.unshift(newCust);
+        savedCustomerId = newCust.id;
+      }
+
       saveToStorage();
       renderCustomers();
+      populateCartCustomerSelect();
       document.getElementById('modalCustomer').classList.remove('active');
+
+      if (pendingQuickAddFromCart) {
+        STATE.selectedCustomerId = savedCustomerId;
+        populateCartCustomerSelect();
+        updateCartCustomerBadge();
+        pendingQuickAddFromCart = false;
+      }
+
       alert("👤 Client enregistré avec succès !");
     });
   }
 
+  const btnDelCust = document.getElementById('btnDeleteCustomerModal');
+  if (btnDelCust) {
+    btnDelCust.addEventListener('click', () => {
+      const id = document.getElementById('custEditId').value;
+      if (id && confirm("Êtes-vous certain de vouloir supprimer ce client de la base ?")) {
+        STATE.customers = STATE.customers.filter(c => c.id !== id);
+        if (STATE.selectedCustomerId === id) STATE.selectedCustomerId = "";
+        saveToStorage();
+        renderCustomers();
+        populateCartCustomerSelect();
+        document.getElementById('modalCustomer').classList.remove('active');
+      }
+    });
+  }
+
+  // CRM Filter Pills
+  document.querySelectorAll('.cust-filter-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.cust-filter-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentCustomerFilter = btn.dataset.filter || 'all';
+      renderCustomers();
+    });
+  });
+
+  const custSearchInput = document.getElementById('custSearchInput');
+  if (custSearchInput) {
+    custSearchInput.addEventListener('input', renderCustomers);
+  }
+
+  // Customer Purchase History Modal
+  let activeHistoryCustomer = null;
+  function openCustomerHistoryModal(cust) {
+    activeHistoryCustomer = cust;
+    const modal = document.getElementById('modalCustomerHistory');
+    const profileEl = document.getElementById('custHistProfileCard');
+    const listEl = document.getElementById('custHistTicketsList');
+    if (!modal || !profileEl || !listEl) return;
+
+    const tickets = STATE.tickets.filter(t => t.customerId === cust.id || (t.customerName && t.customerName.toLowerCase() === cust.name.toLowerCase()));
+    
+    profileEl.innerHTML = `
+      <div style="font-size: 16px; font-weight: 800; color: var(--primary);">${cust.name}</div>
+      <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">📞 ${cust.phone || 'Sans numéro'} ${cust.email ? ' | ✉️ ' + cust.email : ''}</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px;">
+        <div style="background: var(--bg-card); padding: 8px; border-radius: 8px;">
+          <div style="font-size: 10px; color: var(--text-muted);">Total Dépensé</div>
+          <div style="font-size: 15px; font-weight: 800; color: var(--success);">${(cust.totalSpent || 0).toLocaleString('fr-FR')} CFA</div>
+        </div>
+        <div style="background: var(--bg-card); padding: 8px; border-radius: 8px;">
+          <div style="font-size: 10px; color: var(--text-muted);">Commandes</div>
+          <div style="font-size: 15px; font-weight: 800; color: var(--primary);">${cust.visitCount || tickets.length}</div>
+        </div>
+      </div>
+    `;
+
+    listEl.innerHTML = '';
+    if (tickets.length === 0) {
+      listEl.innerHTML = '<div style="font-size: 12px; color: var(--text-muted); text-align: center; padding: 20px;">Aucun ticket associé à ce client pour le moment.</div>';
+    } else {
+      tickets.forEach(t => {
+        const row = document.createElement('div');
+        row.className = 'card-group';
+        row.style.marginBottom = '8px';
+        row.style.cursor = 'pointer';
+        row.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <div style="font-weight: 700; font-size: 13px;">${t.number}</div>
+              <div style="font-size: 11px; color: var(--text-muted);">${new Date(t.date).toLocaleString('fr-FR')}</div>
+            </div>
+            <div style="font-weight: 800; color: var(--primary);">${t.totalAmount.toLocaleString('fr-FR')} CFA</div>
+          </div>
+        `;
+        row.addEventListener('click', () => {
+          document.getElementById('receiptPaperContent').innerHTML = generateReceiptHtml(t);
+          document.getElementById('modalReceipt').classList.add('active');
+        });
+        listEl.appendChild(row);
+      });
+    }
+
+    modal.classList.add('active');
+  }
+
+  // Customer Relance WhatsApp Modal
+  let activeRelanceCustomer = null;
+  function openCustomerRelanceModal(cust) {
+    activeRelanceCustomer = cust;
+    const modal = document.getElementById('modalCustomerRelance');
+    const label = document.getElementById('relanceClientNameText');
+    if (label) label.textContent = `Envoyer une relance WhatsApp à ${cust.name} (${cust.phone || 'Sans numéro'}) :`;
+    if (modal) modal.classList.add('active');
+  }
+
+  document.getElementById('btnRelanceFidelite').addEventListener('click', () => {
+    if (!activeRelanceCustomer || !activeRelanceCustomer.phone) {
+      alert("⚠️ Ce client n'a pas de numéro de téléphone renseigné !");
+      return;
+    }
+    const cleanPhone = activeRelanceCustomer.phone.replace(/[^0-9]/g, '');
+    const msg = `Bonjour ${activeRelanceCustomer.name} ! 😊\nToute l'équipe de *${STATE.settings.shopName}* vous remercie pour votre fidélité (${activeRelanceCustomer.visitCount || 1} commandes chez nous). C'est toujours un plaisir de vous servir ! À très bientôt en boutique. 🛍️`;
+    window.open(`https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`, '_blank');
+  });
+
+  document.getElementById('btnRelancePromo').addEventListener('click', () => {
+    if (!activeRelanceCustomer || !activeRelanceCustomer.phone) {
+      alert("⚠️ Ce client n'a pas de numéro de téléphone renseigné !");
+      return;
+    }
+    const cleanPhone = activeRelanceCustomer.phone.replace(/[^0-9]/g, '');
+    const msg = `Bonjour ${activeRelanceCustomer.name} ! 📢\nDe nouveaux arrivages et promotions exclusives sont disponibles cette semaine chez *${STATE.settings.shopName}*.\nPassez nous voir ou contactez-nous pour réserver vos articles préférés ! 🌟`;
+    window.open(`https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`, '_blank');
+  });
+
+  document.getElementById('btnRelanceInactif').addEventListener('click', () => {
+    if (!activeRelanceCustomer || !activeRelanceCustomer.phone) {
+      alert("⚠️ Ce client n'a pas de numéro de téléphone renseigné !");
+      return;
+    }
+    const cleanPhone = activeRelanceCustomer.phone.replace(/[^0-9]/g, '');
+    const msg = `Bonjour ${activeRelanceCustomer.name} ! 💖\nVous nous manquez chez *${STATE.settings.shopName}* ! Nous avons rentré de nouveaux produits qui pourraient vous intéresser. Au plaisir de vous revoir très bientôt ! ✨`;
+    window.open(`https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(msg)}`, '_blank');
+  });
+
   // ==========================================
-  // CSV & PDF EXPORTS FOR HISTORY & BILAN
+  // EXPORTS & REPORTS
   // ==========================================
   const btnExpHistCsv = document.getElementById('btnExportHistoryCsv');
   if (btnExpHistCsv) {
     btnExpHistCsv.addEventListener('click', () => {
-      const headers = ["Ticket", "Date", "Montant Total", "Mode Reglement", "Articles"];
+      const headers = ["Ticket", "Date", "Montant Total", "Mode Reglement", "Client", "Articles"];
       const rows = STATE.tickets.map(t => [
         t.number,
         new Date(t.date).toLocaleString('fr-FR'),
         t.totalAmount + " CFA",
         (t.paymentMethod || 'ESPECES').toUpperCase(),
+        t.customerName || "Comptoir",
         t.items.map(i => `${i.productName} (x${i.qty})`).join(', ')
       ]);
       exportToCsv(`Historique_Ventes_${Date.now()}.csv`, headers, rows);
@@ -1619,14 +2277,14 @@ function createEscPosTicketBytes(plainText) {
       const win = window.open('', '_blank');
       let rowsHtml = '';
       STATE.tickets.forEach(t => {
-        rowsHtml += `<tr><td>${t.number}</td><td>${new Date(t.date).toLocaleString('fr-FR')}</td><td>${t.items.length}</td><td>${t.totalAmount} CFA</td><td>${t.paymentMethod}</td></tr>`;
+        rowsHtml += `<tr><td>${t.number}</td><td>${new Date(t.date).toLocaleString('fr-FR')}</td><td>${t.customerName || 'Comptoir'}</td><td>${t.items.length}</td><td>${t.totalAmount} CFA</td><td>${t.paymentMethod}</td></tr>`;
       });
       win.document.write(`
         <html><head><title>Historique des Ventes</title>
         <style>body { font-family: sans-serif; padding: 20px; } table { width: 100%; border-collapse: collapse; } th, td { border: 1px solid #ccc; padding: 8px; text-align: left; } th { background: #f0f0f0; }</style>
         </head><body>
         <h2>Historique des Ventes — ${STATE.settings.shopName}</h2>
-        <table><thead><tr><th>Ticket</th><th>Date</th><th>Articles</th><th>Montant</th><th>Règlement</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+        <table><thead><tr><th>Ticket</th><th>Date</th><th>Client</th><th>Articles</th><th>Montant</th><th>Règlement</th></tr></thead><tbody>${rowsHtml}</tbody></table>
         <script>window.print();</script></body></html>
       `);
       win.document.close();
@@ -1814,9 +2472,7 @@ function createEscPosTicketBytes(plainText) {
     prodSearch.addEventListener('input', () => renderProducts());
   }
 
-  // ==========================================
-  // PRINT THERMAL BARCODE LABEL
-  // ==========================================
+  // Print Thermal Barcode Label
   const btnPrintLabel = document.getElementById('btnPrintLabelNow');
   if (btnPrintLabel) {
     btnPrintLabel.addEventListener('click', async () => {
@@ -1851,17 +2507,30 @@ function createEscPosTicketBytes(plainText) {
     });
   }
 
+  // Helper PIN Request
+  function requestAdminPin(actionName, callback) {
+    if (!STATE.settings.adminPin || STATE.settings.adminPin === "0000") {
+      callback();
+      return;
+    }
+    STATE.pendingPinAction = callback;
+    document.getElementById('pinActionDescription').textContent = `Action protégée : ${actionName}`;
+    document.getElementById('pinInputCode').value = '';
+    document.getElementById('modalPin').classList.add('active');
+  }
+
   // Service Worker Registration for PWA Offline
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./service-worker.js').catch(console.error);
   }
 });
 
-let currentHistoryPeriod = 'today';
-
-// Other Tabs Rendering functions
+// ==========================================
+// 13. VIEW RENDERING FUNCTIONS
+// ==========================================
 function renderProducts() {
   const container = document.getElementById('productsListContainer');
+  if (!container) return;
   container.innerHTML = '';
   const search = (document.getElementById('prodSearchInput') ? document.getElementById('prodSearchInput').value : '').toLowerCase();
   
@@ -1930,6 +2599,7 @@ function renderProducts() {
 
 function renderHistory() {
   const container = document.getElementById('historyListContainer');
+  if (!container) return;
   container.innerHTML = '';
   let totalPeriod = 0;
 
@@ -1945,7 +2615,7 @@ function renderHistory() {
     if (currentHistoryPeriod === 'yesterday') return tTime >= startOfYesterday && tTime < startOfToday;
     if (currentHistoryPeriod === 'week') return tTime >= startOfWeek;
     if (currentHistoryPeriod === 'month') return tTime >= startOfMonth;
-    return true; // 'all'
+    return true;
   });
 
   if (filteredTickets.length === 0) {
@@ -1960,8 +2630,8 @@ function renderHistory() {
       card.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div>
-            <div style="font-weight: 700; font-size: 14px;">${t.number}</div>
-            <div style="font-size: 11px; color: var(--text-muted);">${new Date(t.date).toLocaleString('fr-FR')}</div>
+            <div style="font-weight: 700; font-size: 14px;">${t.number} ${t.customerName ? '<span style="font-size:12px; color:var(--primary);">• ' + t.customerName + '</span>' : ''}</div>
+            <div style="font-size: 11px; color: var(--text-muted);">${new Date(t.date).toLocaleString('fr-FR')} • ${(t.paymentMethod || 'ESPECES').toUpperCase()}</div>
           </div>
           <div style="font-size: 16px; font-weight: 700; color: var(--primary);">${t.totalAmount.toLocaleString('fr-FR')} CFA</div>
         </div>
@@ -1974,17 +2644,21 @@ function renderHistory() {
     });
   }
 
-  document.getElementById('historyTotalSales').textContent = totalPeriod.toLocaleString('fr-FR') + ' CFA';
+  const totalEl = document.getElementById('historyTotalSales');
+  if (totalEl) totalEl.textContent = totalPeriod.toLocaleString('fr-FR') + ' CFA';
 }
 
 function renderReports() {
   const z = getZReportData();
   const stockVal = STATE.products.reduce((sum, p) => sum + (p.stock * p.salePrice), 0);
-  document.getElementById('reportRevenue').textContent = z.totalSales.toLocaleString('fr-FR') + ' CFA';
-  document.getElementById('reportProfit').textContent = (z.totalSales - z.totalExpenses).toLocaleString('fr-FR') + ' CFA';
-  document.getElementById('reportStockValue').textContent = stockVal.toLocaleString('fr-FR') + ' CFA';
+  
+  const revEl = document.getElementById('reportRevenue');
+  if (revEl) revEl.textContent = z.totalSales.toLocaleString('fr-FR') + ' CFA';
+  const profEl = document.getElementById('reportProfit');
+  if (profEl) profEl.textContent = (z.totalSales - z.totalExpenses).toLocaleString('fr-FR') + ' CFA';
+  const stockEl = document.getElementById('reportStockValue');
+  if (stockEl) stockEl.textContent = stockVal.toLocaleString('fr-FR') + ' CFA';
 
-  // Render expenses list
   const expContainer = document.getElementById('expensesListContainer');
   if (expContainer) {
     expContainer.innerHTML = '';
@@ -2010,34 +2684,130 @@ function renderReports() {
 
 function renderCustomers() {
   const container = document.getElementById('customersListContainer');
+  if (!container) return;
   container.innerHTML = '';
-  let totalDebt = 0;
-  STATE.customers.forEach(c => {
-    totalDebt += c.debt;
-    const card = document.createElement('div');
-    card.className = 'card-group';
-    card.style.display = 'flex';
-    card.style.justifyContent = 'space-between';
-    card.style.alignItems = 'center';
-    card.innerHTML = `
-      <div>
-        <div style="font-weight: 700; font-size: 15px;">${c.name}</div>
-        <div style="font-size: 12px; color: var(--text-muted);">${c.phone || 'Pas de numéro'}</div>
-      </div>
-      <div style="text-align: right;">
-        <div style="font-size: 11px; color: var(--text-muted);">Dette</div>
-        <div style="font-size: 15px; font-weight: 700; color: ${c.debt > 0 ? 'var(--danger)' : 'var(--success)'};">${c.debt.toLocaleString('fr-FR')} CFA</div>
+  
+  if (!STATE.customers) STATE.customers = [];
+
+  const totalClients = STATE.customers.length;
+  const totalSalesFromClients = STATE.customers.reduce((sum, c) => sum + (c.totalSpent || 0), 0);
+
+  const cntEl = document.getElementById('customerCountTotal');
+  if (cntEl) cntEl.textContent = totalClients;
+  const salesEl = document.getElementById('customerTotalSales');
+  if (salesEl) salesEl.textContent = totalSalesFromClients.toLocaleString('fr-FR') + ' CFA';
+
+  const search = (document.getElementById('custSearchInput') ? document.getElementById('custSearchInput').value : '').toLowerCase().trim();
+  const now = Date.now();
+  const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+  const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000);
+
+  let filtered = STATE.customers.filter(c => {
+    const matchSearch = !search || 
+      (c.name && c.name.toLowerCase().includes(search)) || 
+      (c.phone && c.phone.includes(search));
+    if (!matchSearch) return false;
+
+    if (currentCustomerFilter === 'vip') {
+      return (c.totalSpent >= 50000) || (c.visitCount >= 5);
+    }
+    if (currentCustomerFilter === 'recent') {
+      return c.lastPurchaseDate && c.lastPurchaseDate >= sevenDaysAgo;
+    }
+    if (currentCustomerFilter === 'inactive') {
+      return !c.lastPurchaseDate || c.lastPurchaseDate < thirtyDaysAgo;
+    }
+    return true;
+  });
+
+  filtered.sort((a, b) => (b.totalSpent || 0) - (a.totalSpent || 0));
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center; padding:30px 10px; color:var(--text-muted);">
+        <div style="font-size:32px; margin-bottom:8px;">👥</div>
+        <div>Aucun client trouvé dans cette vue</div>
+        <button class="btn-main" onclick="document.getElementById('btnAddCustomer').click()" style="margin-top:12px; width:auto; padding:0 16px;">
+          ➕ Ajouter un client
+        </button>
       </div>
     `;
+    return;
+  }
+
+  filtered.forEach(c => {
+    const card = document.createElement('div');
+    card.className = 'card-group';
+    card.style.marginBottom = '10px';
+
+    const isVip = (c.totalSpent >= 50000) || (c.visitCount >= 5);
+    const lastVisitStr = c.lastPurchaseDate ? formatTimeAgo(c.lastPurchaseDate) : 'Aucun achat enregistré';
+
+    card.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 8px;">
+        <div>
+          <div style="font-weight:700; font-size:16px; display:flex; align-items:center; gap:6px;">
+            <span>${c.name}</span>
+            ${isVip ? '<span style="font-size:10px; background:#FEF3C7; color:#92400E; padding:2px 6px; border-radius:10px; font-weight:bold;">⭐ VIP</span>' : ''}
+          </div>
+          <div style="font-size:12px; color:var(--text-muted); margin-top:2px; display:flex; align-items:center; gap:4px;">
+            <span>📞</span> <strong>${c.phone || 'Sans numéro'}</strong>
+            ${c.email ? ` | ✉️ ${c.email}` : ''}
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:15px; font-weight:800; color:var(--success);">
+            ${(c.totalSpent || 0).toLocaleString('fr-FR')} CFA
+          </div>
+          <div style="font-size:11px; color:var(--text-muted);">
+            ${c.visitCount || 0} commande(s)
+          </div>
+        </div>
+      </div>
+
+      <div style="font-size:11px; color:var(--text-muted); margin-bottom:10px; display:flex; justify-content:space-between;">
+        <span>🕒 Dernier passage : <strong>${lastVisitStr}</strong></span>
+        ${c.notes ? `<span style="font-style:italic;">📝 ${c.notes}</span>` : ''}
+      </div>
+
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        <button class="btn-main btn-secondary btn-cust-relance" style="margin:0; flex:1; height:36px; font-size:12px; background:#e8f5e9; color:#2e7d32;">
+          💬 Relance WhatsApp
+        </button>
+        <button class="btn-main btn-secondary btn-cust-hist" style="margin:0; width:auto; height:36px; font-size:12px; padding:0 10px;">
+          📋 Historique
+        </button>
+        <button class="icon-btn btn-cust-edit" style="border:1px solid var(--border); width:36px; height:36px; color:var(--primary);">
+          ✏️
+        </button>
+        <button class="icon-btn btn-cust-del" style="border:1px solid var(--border); width:36px; height:36px; color:var(--danger);">
+          🗑️
+        </button>
+      </div>
+    `;
+
+    card.querySelector('.btn-cust-relance').addEventListener('click', () => openCustomerRelanceModal(c));
+    card.querySelector('.btn-cust-hist').addEventListener('click', () => openCustomerHistoryModal(c));
+    card.querySelector('.btn-cust-edit').addEventListener('click', () => openCustomerModal(c));
+    card.querySelector('.btn-cust-del').addEventListener('click', () => {
+      if (confirm(`Voulez-vous supprimer la fiche client de "${c.name}" ?`)) {
+        STATE.customers = STATE.customers.filter(x => x.id !== c.id);
+        if (STATE.selectedCustomerId === c.id) STATE.selectedCustomerId = "";
+        saveToStorage();
+        renderCustomers();
+        populateCartCustomerSelect();
+      }
+    });
+
     container.appendChild(card);
   });
-  document.getElementById('customerTotalDebt').textContent = totalDebt.toLocaleString('fr-FR') + ' CFA';
 }
 
 function renderTools() {
   const select = document.getElementById('toolProductSelect');
+  if (!select) return;
   select.innerHTML = '<option value="">-- Personnalisé --</option>';
-  STATE.products.forEach(p => {
+  (STATE.products || []).forEach(p => {
     select.innerHTML += `<option value="${p.id}">${p.name} (${p.salePrice} CFA)</option>`;
   });
   select.onchange = (e) => {
@@ -2054,17 +2824,30 @@ function renderTools() {
 }
 
 function renderSettings() {
-  document.getElementById('setShopName').value = STATE.settings.shopName;
-  document.getElementById('setShopAddress').value = STATE.settings.shopAddress;
-  document.getElementById('setShopPhone').value = STATE.settings.shopPhone;
-  document.getElementById('setSellerName').value = STATE.settings.sellerName;
-  document.getElementById('setReceiptFooter').value = STATE.settings.receiptFooter;
-  document.getElementById('setShowSignature').checked = STATE.settings.showPublisherSignature;
-  document.getElementById('setTaxEnabled').checked = STATE.settings.taxEnabled;
-  document.getElementById('setAdminPin').value = STATE.settings.adminPin;
-  if (document.getElementById('setPrinterWidth')) {
-    document.getElementById('setPrinterWidth').value = STATE.settings.printerWidth || "58";
-  }
+  const setShopName = document.getElementById('setShopName');
+  if (setShopName) setShopName.value = STATE.settings.shopName;
+  const setShopAddress = document.getElementById('setShopAddress');
+  if (setShopAddress) setShopAddress.value = STATE.settings.shopAddress;
+  const setShopPhone = document.getElementById('setShopPhone');
+  if (setShopPhone) setShopPhone.value = STATE.settings.shopPhone;
+  const setSellerName = document.getElementById('setSellerName');
+  if (setSellerName) setSellerName.value = STATE.settings.sellerName;
+  const setReceiptFooter = document.getElementById('setReceiptFooter');
+  if (setReceiptFooter) setReceiptFooter.value = STATE.settings.receiptFooter;
+  const setShowSignature = document.getElementById('setShowSignature');
+  if (setShowSignature) setShowSignature.checked = STATE.settings.showPublisherSignature;
+  const setTaxEnabled = document.getElementById('setTaxEnabled');
+  if (setTaxEnabled) setTaxEnabled.checked = STATE.settings.taxEnabled;
+  const setAdminPin = document.getElementById('setAdminPin');
+  if (setAdminPin) setAdminPin.value = STATE.settings.adminPin;
+  const setPrinterWidth = document.getElementById('setPrinterWidth');
+  if (setPrinterWidth) setPrinterWidth.value = STATE.settings.printerWidth || "58";
+
+  // Google Sheets Settings
+  const setSheetsUrl = document.getElementById('setGoogleSheetsUrl');
+  if (setSheetsUrl) setSheetsUrl.value = STATE.settings.googleSheetsUrl || "";
+  const setSheetsSync = document.getElementById('setGoogleSheetsSync');
+  if (setSheetsSync) setSheetsSync.checked = !!STATE.settings.googleSheetsSync;
 
   // Update License Status Card
   const devIdEl = document.getElementById('settingsDevId');

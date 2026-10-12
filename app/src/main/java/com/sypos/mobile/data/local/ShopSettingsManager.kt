@@ -20,7 +20,7 @@ enum class UserRole {
 }
 
 data class ShopSettings(
-    val shopName: String = "SYPOS COMMERCE",
+    val shopName: String = "KAYO COMMERCE",
     val shopAddress: String = "Marché Central, Boutique N° 12",
     val shopPhone: String = "+221 77 000 00 00",
     val receiptFooter: String = "Merci de votre visite et à très bientôt !",
@@ -28,8 +28,9 @@ data class ShopSettings(
     val businessMode: BusinessMode = BusinessMode.SUPERMARKET,
     val currentUserRole: UserRole = UserRole.ADMIN,
     val sellerName: String = "Vendeur 1",
+    val savedSellers: String = "", // Comma-separated list of seller names
     val showPublisherSignature: Boolean = true,
-    val publisherSignatureText: String = "Solution: SYPOS MOBILE 0758245530",
+    val publisherSignatureText: String = "Solution: KAYO MOBILE 0758245530",
     val taxEnabled: Boolean = false,
     val taxRatePercent: Double = 18.0,
     val allowNegativeStock: Boolean = false,
@@ -43,14 +44,16 @@ data class ShopSettings(
     val licenseKey: String = "",
     val licenseType: String = "Non Activé",
     val licenseExpiryDate: Long = 0L, // 0L = Illimité
-    val lastKnownTimestamp: Long = 0L
+    val lastKnownTimestamp: Long = 0L,
+    val shopLogoUri: String? = null,
+    val currentShopId: String = ""
 )
 
 @Singleton
 class ShopSettingsManager @Inject constructor(
     @ApplicationContext context: Context
 ) {
-    private val prefs: SharedPreferences = context.getSharedPreferences("sypos_shop_settings", Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences = context.getSharedPreferences("KAYO_shop_settings", Context.MODE_PRIVATE)
 
     private val _settings = MutableStateFlow(loadSettings())
     val settings: StateFlow<ShopSettings> = _settings.asStateFlow()
@@ -60,7 +63,7 @@ class ShopSettingsManager @Inject constructor(
         val roleStr = prefs.getString("currentUserRole", UserRole.ADMIN.name) ?: UserRole.ADMIN.name
 
         return ShopSettings(
-            shopName = prefs.getString("shopName", "SYPOS COMMERCE") ?: "SYPOS COMMERCE",
+            shopName = prefs.getString("shopName", "KAYO COMMERCE") ?: "KAYO COMMERCE",
             shopAddress = prefs.getString("shopAddress", "Marché Central") ?: "Marché Central",
             shopPhone = prefs.getString("shopPhone", "") ?: "",
             receiptFooter = prefs.getString("receiptFooter", "Merci de votre visite et à très bientôt !") ?: "Merci de votre visite et à très bientôt !",
@@ -68,8 +71,9 @@ class ShopSettingsManager @Inject constructor(
             businessMode = try { BusinessMode.valueOf(modeStr) } catch (e: Exception) { BusinessMode.SUPERMARKET },
             currentUserRole = try { UserRole.valueOf(roleStr) } catch (e: Exception) { UserRole.ADMIN },
             sellerName = prefs.getString("sellerName", "Vendeur 1") ?: "Vendeur 1",
+            savedSellers = prefs.getString("savedSellers", "") ?: "",
             showPublisherSignature = prefs.getBoolean("showPublisherSignature", true),
-            publisherSignatureText = prefs.getString("publisherSignatureText", "Solution: SYPOS MOBILE 0758245530") ?: "Solution: SYPOS MOBILE 0758245530",
+            publisherSignatureText = prefs.getString("publisherSignatureText", "Solution: KAYO MOBILE 0758245530") ?: "Solution: KAYO MOBILE 0758245530",
             taxEnabled = prefs.getBoolean("taxEnabled", false),
             taxRatePercent = prefs.getFloat("taxRatePercent", 18.0f).toDouble(),
             allowNegativeStock = prefs.getBoolean("allowNegativeStock", false),
@@ -83,8 +87,15 @@ class ShopSettingsManager @Inject constructor(
             licenseKey = prefs.getString("licenseKey", "") ?: "",
             licenseType = prefs.getString("licenseType", "Non Activé") ?: "Non Activé",
             licenseExpiryDate = prefs.getLong("licenseExpiryDate", 0L),
-            lastKnownTimestamp = prefs.getLong("lastKnownTimestamp", 0L)
+            lastKnownTimestamp = prefs.getLong("lastKnownTimestamp", 0L),
+            shopLogoUri = prefs.getString("shopLogoUri", null),
+            currentShopId = prefs.getString("currentShopId", "") ?: ""
         )
+    }
+
+    fun updateSettingsLocally(newSettings: ShopSettings) {
+        // Just update local without triggering another push (actually updateSettings is what SettingsViewModel calls, but here we just do the same thing)
+        updateSettings(newSettings)
     }
 
     fun updateSettings(newSettings: ShopSettings) {
@@ -101,6 +112,7 @@ class ShopSettingsManager @Inject constructor(
             putString("businessMode", settingsToSave.businessMode.name)
             putString("currentUserRole", settingsToSave.currentUserRole.name)
             putString("sellerName", settingsToSave.sellerName)
+            putString("savedSellers", settingsToSave.savedSellers)
             putBoolean("showPublisherSignature", settingsToSave.showPublisherSignature)
             putString("publisherSignatureText", settingsToSave.publisherSignatureText)
             putBoolean("taxEnabled", settingsToSave.taxEnabled)
@@ -117,6 +129,8 @@ class ShopSettingsManager @Inject constructor(
             putString("licenseType", settingsToSave.licenseType)
             putLong("licenseExpiryDate", settingsToSave.licenseExpiryDate)
             putLong("lastKnownTimestamp", updatedTimestamp)
+            putString("shopLogoUri", settingsToSave.shopLogoUri)
+            putString("currentShopId", settingsToSave.currentShopId)
             apply()
         }
         _settings.value = settingsToSave
@@ -130,7 +144,26 @@ class ShopSettingsManager @Inject constructor(
         }
     }
 
+    fun getEffectiveShopId(): String {
+        val saved = _settings.value.currentShopId
+        if (saved.isNotBlank()) return saved
+        val authUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+        if (!authUid.isNullOrBlank()) {
+            setCurrentShopId(authUid)
+            return authUid
+        }
+        return ""
+    }
+
+    fun setCurrentShopId(shopId: String) {
+        if (shopId.isNotBlank() && shopId != _settings.value.currentShopId) {
+            prefs.edit().putString("currentShopId", shopId).apply()
+            _settings.value = _settings.value.copy(currentShopId = shopId)
+        }
+    }
+
     fun setUserRole(role: UserRole) {
         updateSettings(_settings.value.copy(currentUserRole = role))
     }
 }
+

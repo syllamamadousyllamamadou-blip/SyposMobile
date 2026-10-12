@@ -1,5 +1,6 @@
 package com.sypos.mobile.ui.report
 
+import com.sypos.mobile.util.CurrencyUtils.formatAmount
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -58,6 +59,50 @@ fun ReportScreen(
         showZReportDialog = true
     }
 
+    fun shareFullReport() {
+        val zData = com.sypos.mobile.util.ZReportData(
+            dateText = selectedDateFilter.label,
+            totalSales = summary.totalSales,
+            ticketsCount = summary.totalTicketsCount,
+            totalExpenses = summary.totalExpenses,
+            cashSales = summary.totalSales - summary.totalExpenses, // Approximate for display
+            waveSales = 0.0,
+            orangeMoneySales = 0.0,
+            mtnSales = 0.0,
+            moovSales = 0.0,
+            cardSales = 0.0,
+            creditSales = 0.0,
+            netCashInDrawer = summary.netBalance,
+            totalPurchaseCost = stockValuation.totalPurchaseValue
+        )
+        val bitmap = com.sypos.mobile.util.ZReportImageGenerator.generateReportBitmap(zData, settings)
+        try {
+            val cachePath = java.io.File(context.cacheDir, "images")
+            cachePath.mkdirs()
+            val file = java.io.File(cachePath, "bilan_${System.currentTimeMillis()}.png")
+            val stream = java.io.FileOutputStream(file)
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
+            stream.close()
+
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "com.sypos.mobile.fileprovider",
+                file
+            )
+
+            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                putExtra(android.content.Intent.EXTRA_TEXT, "Bilan KAYO - ${selectedDateFilter.label}")
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(android.content.Intent.createChooser(shareIntent, "Partager le Bilan"))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            android.widget.Toast.makeText(context, "Erreur lors de la génération de l'image", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -66,6 +111,11 @@ fun ReportScreen(
                     containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
                 ),
                 actions = {
+                    if (settings.currentUserRole == com.sypos.mobile.data.local.UserRole.ADMIN) {
+                        IconButton(onClick = { shareFullReport() }) {
+                            Icon(Icons.Default.Share, contentDescription = "Exporter le Bilan")
+                        }
+                    }
                     FilledTonalButton(
                         onClick = { openAndPrintZReport() },
                         shape = RoundedCornerShape(10.dp),
@@ -166,6 +216,7 @@ fun ReportScreen(
             }
 
             // Financial Summary Cards
+            if (settings.currentUserRole == com.sypos.mobile.data.local.UserRole.ADMIN) {
             item {
                 Card(
                     shape = RoundedCornerShape(16.dp),
@@ -209,20 +260,25 @@ fun ReportScreen(
                                 amount = summary.totalSales,
                                 icon = Icons.AutoMirrored.Filled.TrendingUp,
                                 color = Color(0xFF10B981),
+                                settings = settings,
                                 modifier = Modifier.weight(1f)
                             )
-                            // Total Expenses
-                            KpiMiniCard(
-                                title = "Dépenses Sorties",
-                                amount = summary.totalExpenses,
-                                icon = Icons.AutoMirrored.Filled.TrendingDown,
-                                color = Color(0xFFEF4444),
-                                modifier = Modifier.weight(1f)
-                            )
+                            // Total Expenses (Admin only)
+                            if (settings.currentUserRole == com.sypos.mobile.data.local.UserRole.ADMIN) {
+                                KpiMiniCard(
+                                    title = "Dépenses Sorties",
+                                    amount = summary.totalExpenses,
+                                    icon = Icons.AutoMirrored.Filled.TrendingDown,
+                                    color = Color(0xFFEF4444),
+                                    settings = settings,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
 
-                        // Net Profit
-                        Surface(
+                        // Net Profit (Admin only)
+                        if (settings.currentUserRole == com.sypos.mobile.data.local.UserRole.ADMIN) {
+                            Surface(
                             color = if (summary.netBalance >= 0) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -237,7 +293,7 @@ fun ReportScreen(
                                 Column {
                                     Text("BÉNÉFICE NET (SOLDE DE CAISSE)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = if (summary.netBalance >= 0) Color(0xFF2E7D32) else Color(0xFFC62828))
                                     Text(
-                                        text = String.format(Locale.FRANCE, "%,.0f CFA", summary.netBalance),
+                                        text = summary.netBalance.formatAmount(settings.currency),
                                         style = MaterialTheme.typography.headlineSmall,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = if (summary.netBalance >= 0) Color(0xFF1B5E20) else Color(0xFFB71C1C)
@@ -251,12 +307,15 @@ fun ReportScreen(
                                 )
                             }
                         }
+                        }
                     }
                 }
             }
+            }
 
-            // Section: Stock Valuation (Valorisation du Stock)
-            item {
+            // Section: Stock Valuation (Valorisation du Stock) - ADMIN ONLY
+            if (settings.currentUserRole == com.sypos.mobile.data.local.UserRole.ADMIN) {
+                item {
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -279,7 +338,7 @@ fun ReportScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Valeur Achat (Revient)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(
-                                    text = String.format(Locale.FRANCE, "%,.0f CFA", stockValuation.totalPurchaseValue),
+                                    text = stockValuation.totalPurchaseValue.formatAmount(settings.currency),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -287,7 +346,7 @@ fun ReportScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Valeur Vente (Marchande)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(
-                                    text = String.format(Locale.FRANCE, "%,.0f CFA", stockValuation.totalSaleValue),
+                                    text = stockValuation.totalSaleValue.formatAmount(settings.currency),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
@@ -310,7 +369,7 @@ fun ReportScreen(
                                 Column {
                                     Text("Marge Bénéficiaire Potentielle", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                                     Text(
-                                        text = String.format(Locale.FRANCE, "%,.0f CFA", stockValuation.potentialProfitMargin),
+                                        text = stockValuation.potentialProfitMargin.formatAmount(settings.currency),
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = MaterialTheme.colorScheme.primary
@@ -326,6 +385,7 @@ fun ReportScreen(
                     }
                 }
             }
+        }
 
             // Payment Methods Breakdown
             if (summary.breakdown.isNotEmpty()) {
@@ -350,7 +410,8 @@ fun ReportScreen(
                                     PaymentMethod.MTN -> "MTN Mobile Money"
                                     PaymentMethod.MOOV -> "Moov Money"
                                     PaymentMethod.CARD -> "Carte Bancaire"
-                                    PaymentMethod.CREDIT -> "Vente à Crédit"
+                                    PaymentMethod.SPLIT -> "Fractionné"
+                                    PaymentMethod.CREDIT -> "À Crédit"
                                 }
 
                                 Row(
@@ -360,7 +421,7 @@ fun ReportScreen(
                                 ) {
                                     Text(text = "$label (${item.count})", style = MaterialTheme.typography.bodyMedium)
                                     Text(
-                                        text = String.format(Locale.FRANCE, "%,.0f CFA", item.totalAmount),
+                                        text = item.totalAmount.formatAmount(settings.currency),
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -395,6 +456,7 @@ fun ReportScreen(
                 items(expenses, key = { it.id }) { expense ->
                     ExpenseItemRow(
                         expense = expense,
+                        settings = settings,
                         onDelete = { expenseToDelete = expense }
                     )
                 }
@@ -406,15 +468,19 @@ fun ReportScreen(
         AddExpenseDialog(
             onDismiss = { showAddExpenseDialog = false },
             onConfirm = { amount, desc, cat ->
-                viewModel.addExpense(amount, desc, cat)
+                viewModel.addExpense(amount, desc, cat, context)
             }
         )
     }
 
     if (showZReportDialog) {
-        val zData = viewModel.generateTodayZReport()
-        ZReportDialog(
-            report = zData,
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            viewModel.loadTodayZReport()
+        }
+        val zData = viewModel.zReportData.collectAsState().value
+        if (zData != null) {
+            ZReportDialog(
+                report = zData,
             settings = settings,
             onPrint = {
                 viewModel.printZReport(context) { result ->
@@ -427,6 +493,7 @@ fun ReportScreen(
             },
             onDismiss = { showZReportDialog = false }
         )
+        }
     }
 
     if (showCustomDateDialog) {
@@ -483,6 +550,7 @@ fun KpiMiniCard(
     amount: Double,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     color: Color,
+    settings: com.sypos.mobile.data.local.ShopSettings,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -496,7 +564,7 @@ fun KpiMiniCard(
                 Text(title, style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.Bold)
             }
             Text(
-                text = String.format(Locale.FRANCE, "%,.0f CFA", amount),
+                text = amount.formatAmount(settings.currency),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.ExtraBold,
                 color = color
@@ -508,6 +576,7 @@ fun KpiMiniCard(
 @Composable
 fun ExpenseItemRow(
     expense: ExpenseEntity,
+    settings: com.sypos.mobile.data.local.ShopSettings,
     onDelete: () -> Unit
 ) {
     val dateStr = SimpleDateFormat("dd/MM/yy HH:mm", Locale.FRANCE).format(Date(expense.date))
@@ -535,7 +604,7 @@ fun ExpenseItemRow(
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = "-${String.format(Locale.FRANCE, "%,.0f CFA", expense.amount)}",
+                    text = "-${expense.amount.formatAmount(settings.currency)}",
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium
@@ -547,3 +616,4 @@ fun ExpenseItemRow(
         }
     }
 }
+

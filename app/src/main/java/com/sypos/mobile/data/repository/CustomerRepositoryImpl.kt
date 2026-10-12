@@ -14,8 +14,8 @@ class CustomerRepositoryImpl @Inject constructor(
         return customerDao.getAllCustomers()
     }
 
-    override fun getCustomersWithDebt(): Flow<List<CustomerEntity>> {
-        return customerDao.getCustomersWithDebt()
+    override fun getVipCustomers(): Flow<List<CustomerEntity>> {
+        return customerDao.getVipCustomers()
     }
 
     override fun searchCustomers(query: String): Flow<List<CustomerEntity>> {
@@ -34,12 +34,16 @@ class CustomerRepositoryImpl @Inject constructor(
         customerDao.updateCustomer(customer)
     }
 
+    override suspend fun recordPurchase(customerId: String, amount: Double, date: Long) {
+        customerDao.recordPurchase(customerId, amount, date)
+    }
+
     override suspend fun addDebt(customerId: String, amount: Double) {
         customerDao.addDebt(customerId, amount)
     }
 
-    override suspend fun settleDebt(customerId: String, amount: Double) {
-        customerDao.reduceDebt(customerId, amount)
+    override suspend fun payDebt(customerId: String, amount: Double) {
+        customerDao.payDebt(customerId, amount)
     }
 
     override suspend fun deleteCustomer(customer: CustomerEntity) {

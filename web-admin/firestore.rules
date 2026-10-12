@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isAdmin() {
+      // Basic admin check (could be improved with custom claims later)
+      return request.auth != null && (request.auth.token.email == 'admin@kayo.com' || request.auth.token.email == 'contact@kayo.com' || request.auth.token.email == 'syllasyllas@icloud.com');
+    }
+
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isAdmin();
+    }
+
+    function isShopAuthorized(shopId) {
+      return request.auth != null && (
+        request.auth.uid == shopId ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.shopId == shopId)
+      );
+    }
+
+    match /shops/{shopId}/{document=**} {
+      allow read, write: if isShopAuthorized(shopId) || isAdmin();
+    }
+    
+    // Legacy support if needed
+    match /licenses/{deviceId} {
+      allow read, write: if true;
+    }
+    match /backups/{deviceId} {
+      allow read, write: if true;
+    }
+  }
+}

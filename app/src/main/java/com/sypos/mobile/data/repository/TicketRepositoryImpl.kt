@@ -47,14 +47,6 @@ class TicketRepositoryImpl @Inject constructor(
         for (item in items) {
             productDao.decreaseStock(item.productId, item.quantity)
         }
-
-        // If ticket is on credit and assigned to a customer, add debt
-        if (ticket.status == TicketStatus.CREDIT && !ticket.customerId.isNullOrBlank()) {
-            val remainingDebt = ticket.totalAmount - ticket.amountPaid
-            if (remainingDebt > 0) {
-                customerDao.addDebt(ticket.customerId, remainingDebt)
-            }
-        }
     }
 
     override suspend fun holdTicket(ticket: TicketEntity, items: List<TicketItemEntity>) {
@@ -69,17 +61,11 @@ class TicketRepositoryImpl @Inject constructor(
         val ticket = ticketDao.getTicketById(ticketId) ?: return
         if (ticket.status == TicketStatus.CANCELLED) return
 
-        // Restore stock if it was a paid or credit ticket
-        if (ticket.status == TicketStatus.PAID || ticket.status == TicketStatus.CREDIT) {
+        // Restore stock if it was a paid ticket
+        if (ticket.status == TicketStatus.PAID) {
             val items = ticketDao.getItemsForTicketSync(ticketId)
             for (item in items) {
                 productDao.increaseStock(item.productId, item.quantity)
-            }
-            if (ticket.status == TicketStatus.CREDIT && !ticket.customerId.isNullOrBlank()) {
-                val debtToRemove = ticket.totalAmount - ticket.amountPaid
-                if (debtToRemove > 0) {
-                    customerDao.reduceDebt(ticket.customerId, debtToRemove)
-                }
             }
         }
 

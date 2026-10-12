@@ -1,5 +1,6 @@
 package com.sypos.mobile.ui.tools
 
+import com.sypos.mobile.util.CurrencyUtils.formatAmount
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
@@ -118,6 +119,7 @@ fun ToolsScreen(
                         settings = settings
                     )
                     ToolTab.DELIVERY_NOTE -> DeliveryNoteSection(
+                        products = products,
                         settings = settings,
                         onPrintDelivery = { data ->
                             viewModel.printDeliveryNote(context, data) { result ->
@@ -206,36 +208,17 @@ fun BarcodeLabelSection(
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Générateur d'Étiquettes Intelligent", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
-                // Select from Catalog Dropdown
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(
-                        onClick = { showProductDropdown = true },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(selectedProduct?.name ?: "Choisir un produit du catalogue")
+                SearchableProductDropdown(
+                    products = products,
+                    selectedProduct = selectedProduct,
+                    onProductSelected = { prod ->
+                        selectedProduct = prod
+                        customName = prod.name
+                        customPrice = prod.salePrice.toString()
+                        customBarcode = prod.barcode ?: ""
+                        customSerial = prod.barcode ?: ""
                     }
-
-                    DropdownMenu(
-                        expanded = showProductDropdown,
-                        onDismissRequest = { showProductDropdown = false },
-                        modifier = Modifier.fillMaxWidth(0.85f)
-                    ) {
-                        products.forEach { prod ->
-                            DropdownMenuItem(
-                                text = { Text("${prod.name} (${String.format(Locale.FRANCE, "%,.0f CFA", prod.salePrice)})") },
-                                onClick = {
-                                    selectedProduct = prod
-                                    customName = prod.name
-                                    customPrice = prod.salePrice.toString()
-                                    customBarcode = prod.barcode ?: ""
-                                    customSerial = prod.barcode ?: ""
-                                    showProductDropdown = false
-                                }
-                            )
-                        }
-                    }
-                }
+                )
 
                 // Preset Buttons
                 Text("Modèle d'Étiquette :", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
@@ -443,33 +426,16 @@ fun ProductSheetSection(
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Fiche Produit WhatsApp & Réseaux Sociaux", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(
-                        onClick = { showProductDropdown = true },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(selectedProduct?.name ?: "Remplir depuis le catalogue")
-                    }
-
-                    DropdownMenu(
-                        expanded = showProductDropdown,
-                        onDismissRequest = { showProductDropdown = false },
-                        modifier = Modifier.fillMaxWidth(0.85f)
-                    ) {
-                        products.forEach { prod ->
-                            DropdownMenuItem(
-                                text = { Text(prod.name) },
-                                onClick = {
-                                    selectedProduct = prod
-                                    title = prod.name
-                                    normalPrice = prod.salePrice.toString()
-                                    showProductDropdown = false
-                                }
-                            )
-                        }
-                    }
-                }
+                SearchableProductDropdown(
+                    products = products,
+                    selectedProduct = selectedProduct,
+                    onProductSelected = { prod ->
+                        selectedProduct = prod
+                        title = prod.name
+                        normalPrice = prod.salePrice.toString()
+                    },
+                    label = "Rechercher et remplir depuis le catalogue"
+                )
 
                 OutlinedTextField(
                     value = title,
@@ -517,8 +483,8 @@ fun ProductSheetSection(
             onClick = {
                 val sb = StringBuilder()
                 sb.appendLine("🔥 *${title.uppercase(Locale.getDefault())}* 🔥")
-                sb.appendLine("🏢 *${settings.shopName}*")
-                if (settings.shopAddress.isNotBlank()) sb.appendLine("📍 ${settings.shopAddress}")
+                sb.appendLine("🏪 *${settings.shopName}*")
+                if (settings.shopAddress.isNotBlank()) sb.appendLine("📍 ${settings.shopAddress}")
                 sb.appendLine("--------------------------------")
                 if (promoPrice.isNotBlank()) {
                     val pNorm = normalPrice.toDoubleOrNull() ?: 0.0
@@ -530,16 +496,16 @@ fun ProductSheetSection(
                 } else if (normalPrice.isNotBlank()) {
                     val pNorm = normalPrice.toDoubleOrNull() ?: 0.0
                     val pNormStr = String.format(Locale.US, "%,.0f", pNorm).replace(',', ' ') + " CFA"
-                    sb.appendLine("💰 *Prix : $pNormStr*")
+                    sb.appendLine("\uD83D\uDCB0 *Prix : $pNormStr*")
                 }
                 if (description.isNotBlank()) {
                     sb.appendLine("--------------------------------")
-                    sb.appendLine("📝 *Description :*")
+                    sb.appendLine("📍 *Description :*")
                     sb.appendLine(description.trim())
                 }
                 sb.appendLine("--------------------------------")
                 if (settings.shopPhone.isNotBlank()) {
-                    sb.appendLine("📞 Commandez vite au : *${settings.shopPhone}*")
+                    sb.appendLine("\uD83D\uDCDE Commandez vite au : *${settings.shopPhone}*")
                 }
 
                 val sendIntent = Intent().apply {
@@ -564,6 +530,7 @@ fun ProductSheetSection(
 
 @Composable
 fun DeliveryNoteSection(
+    products: List<ProductEntity>,
     settings: ShopSettings,
     onPrintDelivery: (DeliveryNoteData) -> Unit
 ) {
@@ -574,6 +541,7 @@ fun DeliveryNoteSection(
     var amountToCollect by remember { mutableStateOf("") }
     var deliveryFee by remember { mutableStateOf("1000") }
     var note by remember { mutableStateOf("") }
+    var selectedProductForDelivery by remember { mutableStateOf<ProductEntity?>(null) }
 
     Column(
         modifier = Modifier
@@ -589,6 +557,19 @@ fun DeliveryNoteSection(
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Bordereau de Livraison / Colis", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+                SearchableProductDropdown(
+                    products = products,
+                    selectedProduct = selectedProductForDelivery,
+                    onProductSelected = { prod ->
+                        val currentItems = if (itemsSummary.isBlank()) "" else "$itemsSummary\n"
+                        itemsSummary = currentItems + "1x ${prod.name}"
+                        
+                        val currentAmt = amountToCollect.toDoubleOrNull() ?: 0.0
+                        amountToCollect = (currentAmt + prod.salePrice).toString()
+                    },
+                    label = "Ajouter un produit du catalogue"
+                )
 
                 OutlinedTextField(
                     value = recipientName,
@@ -684,6 +665,61 @@ fun DeliveryNoteSection(
             Icon(Icons.Default.LocalShipping, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text("Imprimer Bordereau de Livraison", fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SearchableProductDropdown(
+    products: List<ProductEntity>,
+    selectedProduct: ProductEntity?,
+    onProductSelected: (ProductEntity) -> Unit,
+    label: String = "Rechercher un produit..."
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+
+    val filteredProducts = if (searchQuery.isBlank()) {
+        products
+    } else {
+        products.filter { it.name.contains(searchQuery, ignoreCase = true) || it.barcode?.contains(searchQuery) == true }
+    }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it }
+    ) {
+        OutlinedTextField(
+            value = if (expanded) searchQuery else selectedProduct?.name ?: "",
+            onValueChange = {
+                searchQuery = it
+                expanded = true
+            },
+            modifier = Modifier.menuAnchor().fillMaxWidth(),
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp)
+        )
+
+        if (expanded && filteredProducts.isNotEmpty()) {
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                filteredProducts.take(10).forEach { prod ->
+                    DropdownMenuItem(
+                        text = { Text("${prod.name} - ${prod.salePrice} CFA") },
+                        onClick = {
+                            onProductSelected(prod)
+                            searchQuery = ""
+                            expanded = false
+                        }
+                    )
+                }
+            }
         }
     }
 }

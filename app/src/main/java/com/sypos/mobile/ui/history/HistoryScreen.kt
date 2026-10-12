@@ -1,5 +1,6 @@
 package com.sypos.mobile.ui.history
 
+import com.sypos.mobile.util.CurrencyUtils.formatAmount
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
@@ -17,7 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sypos.mobile.data.local.ShopSettings
 import com.sypos.mobile.data.local.entity.TicketEntity
@@ -164,7 +167,7 @@ fun HistoryScreen(
                     Column {
                         Text("Chiffre d'Affaires (${selectedDateFilter.label})", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
-                            text = String.format(Locale.FRANCE, "%,.0f CFA", totalPaidSales),
+                            text = totalPaidSales.formatAmount(settings.currency),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.primary
@@ -212,14 +215,6 @@ fun HistoryScreen(
                         selected = selectedStatus == TicketStatus.ON_HOLD,
                         onClick = { viewModel.onStatusFilterSelected(TicketStatus.ON_HOLD) },
                         label = { Text("En Attente") },
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                }
-                item {
-                    FilterChip(
-                        selected = selectedStatus == TicketStatus.CREDIT,
-                        onClick = { viewModel.onStatusFilterSelected(TicketStatus.CREDIT) },
-                        label = { Text("Crédits") },
                         shape = RoundedCornerShape(10.dp)
                     )
                 }
@@ -319,15 +314,15 @@ fun TicketHistoryCard(
     val statusColor = when (ticket.status) {
         TicketStatus.PAID -> Color(0xFF10B981)
         TicketStatus.ON_HOLD -> Color(0xFFF59E0B)
-        TicketStatus.CREDIT -> Color(0xFFEF4444)
         TicketStatus.CANCELLED -> Color(0xFF6B7280)
+        TicketStatus.CREDIT -> Color(0xFFE53935)
     }
 
     val statusLabel = when (ticket.status) {
         TicketStatus.PAID -> "Payé"
         TicketStatus.ON_HOLD -> "En Attente"
-        TicketStatus.CREDIT -> "Crédit"
         TicketStatus.CANCELLED -> "Annulé"
+        TicketStatus.CREDIT -> "À Crédit"
     }
 
     Card(
@@ -385,14 +380,14 @@ fun TicketHistoryCard(
                     }
                     val seller = ticket.sellerName ?: settings.sellerName
                     Text(
-                        text = "Vendeur: $seller • ${ticket.paymentMethod?.name ?: "N/A"}",
+                        text = "Vendeur: $seller - ${ticket.paymentMethod?.name ?: "N/A"}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
                 Text(
-                    text = String.format(Locale.FRANCE, "%,.0f CFA", ticket.totalAmount),
+                    text = ticket.totalAmount.formatAmount(settings.currency),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.primary
@@ -422,7 +417,7 @@ fun TicketHistoryCard(
                                 modifier = Modifier.weight(1f)
                             )
                             Text(
-                                text = String.format(Locale.FRANCE, "%,.0f CFA", item.total),
+                                text = item.total.formatAmount(settings.currency),
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -432,69 +427,233 @@ fun TicketHistoryCard(
                     HorizontalDivider()
 
                     // Action Buttons
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Bluetooth Print
-                        if (settings.bluetoothPrinterAddress != null) {
-                            FilledTonalButton(
-                                onClick = {
-                                    scope.launch {
-                                        isPrinting = true
-                                        val result = BluetoothPrinterHelper.printTicket(
-                                            context = context,
-                                            deviceAddress = settings.bluetoothPrinterAddress,
-                                            ticket = ticket,
-                                            items = items,
-                                            customerName = customerName,
-                                            settings = settings
-                                        )
-                                        isPrinting = false
-                                        if (result.isSuccess) {
-                                            Toast.makeText(context, "Ticket réimprimé !", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            Toast.makeText(context, "Erreur : ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                },
-                                enabled = !isPrinting,
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(if (isPrinting) "..." else "Imprimer")
+                    val canCancel = ticket.status == TicketStatus.PAID
+                    val handlePrint: () -> Unit = {
+                        if (settings.bluetoothPrinterAddress.isNullOrBlank()) {
+                            Toast.makeText(context, "Veuillez configurer une imprimante Bluetooth dans les Paramètres", Toast.LENGTH_SHORT).show()
+                        } else {
+                            scope.launch {
+                                isPrinting = true
+                                val result = BluetoothPrinterHelper.printTicket(
+                                    context = context,
+                                    deviceAddress = settings.bluetoothPrinterAddress,
+                                    ticket = ticket,
+                                    items = items,
+                                    customerName = customerName,
+                                    settings = settings
+                                )
+                                isPrinting = false
+                                if (result.isSuccess) {
+                                    Toast.makeText(context, "Ticket réimprimé !", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "Erreur : ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         }
+                    }
 
-                        // WhatsApp Share
-                        OutlinedButton(
-                            onClick = { shareReceiptText(context, ticket, items, customerName, settings) },
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Partager")
-                        }
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        val isNarrow = maxWidth < 285.dp
 
-                        // Cancel sale (Requires Admin PIN)
-                        if (ticket.status == TicketStatus.PAID || ticket.status == TicketStatus.CREDIT) {
-                            Button(
-                                onClick = onCancelClick,
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.weight(1f)
+                        if (isNarrow && canCancel) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Annuler")
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    PrintActionButton(
+                                        isPrinting = isPrinting,
+                                        onClick = handlePrint,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    WhatsAppActionButton(
+                                        onClick = {
+                                            com.sypos.mobile.util.ReceiptImageGenerator.shareReceiptPng(
+                                                context,
+                                                ticket,
+                                                items,
+                                                customerName,
+                                                settings
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                CancelActionButton(
+                                    onClick = onCancelClick,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                PrintActionButton(
+                                    isPrinting = isPrinting,
+                                    onClick = handlePrint,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                WhatsAppActionButton(
+                                    onClick = {
+                                        com.sypos.mobile.util.ReceiptImageGenerator.shareReceiptPng(
+                                            context,
+                                            ticket,
+                                            items,
+                                            customerName,
+                                            settings
+                                        )
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (canCancel) {
+                                    CancelActionButton(
+                                        onClick = onCancelClick,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PrintActionButton(
+    isPrinting: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    FilledTonalButton(
+        onClick = onClick,
+        enabled = !isPrinting,
+        shape = RoundedCornerShape(10.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f),
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+        ),
+        modifier = modifier.height(38.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (isPrinting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            } else {
+                Icon(
+                    Icons.Default.Print,
+                    contentDescription = null,
+                    modifier = Modifier.size(15.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = if (isPrinting) "..." else "Imprimer",
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun WhatsAppActionButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color(0xFF25D366),
+            contentColor = Color.White
+        ),
+        shape = RoundedCornerShape(10.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+        modifier = modifier.height(38.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(
+                Icons.Default.Share,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
+                tint = Color.White
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "WhatsApp",
+                color = Color.White,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun CancelActionButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.error,
+            contentColor = Color.White
+        ),
+        shape = RoundedCornerShape(10.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+        modifier = modifier.height(38.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(
+                Icons.Default.Cancel,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
+                tint = Color.White
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "Annuler",
+                color = Color.White,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -565,3 +724,4 @@ fun CustomDateRangeDialog(
         }
     )
 }
+

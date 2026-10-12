@@ -1,5 +1,6 @@
 package com.sypos.mobile.ui.pos
 
+import com.sypos.mobile.util.CurrencyUtils.formatAmount
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -24,6 +25,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sypos.mobile.data.local.entity.CategoryEntity
 import com.sypos.mobile.data.local.entity.ProductEntity
@@ -74,8 +78,51 @@ fun PosScreen(
 
     Scaffold(
         topBar = {
+            var topBarDropdownExpanded by remember { mutableStateOf(false) }
+            val sellersList = settings.savedSellers.split(",").map { it.trim() }.filter { it.isNotBlank() }
+            
             TopAppBar(
-                title = { Text(settings.shopName.ifBlank { "SYPOS Caisse" }, fontWeight = FontWeight.Bold) },
+                title = { 
+                    Column(
+                        modifier = Modifier
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                            .clickable { 
+                                if (sellersList.isNotEmpty()) topBarDropdownExpanded = true 
+                            }
+                            .padding(4.dp)
+                    ) {
+                        Text(settings.shopName.ifBlank { "KAYO Caisse" }, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        androidx.compose.material3.Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                            modifier = Modifier.padding(top = 2.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                Icon(androidx.compose.material.icons.Icons.Default.Person, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(settings.sellerName.ifBlank { "Choisir Vendeur" }, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                if (sellersList.isNotEmpty()) {
+                                    Icon(androidx.compose.material.icons.Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                                }
+                            }
+                        }
+                        
+                        DropdownMenu(
+                            expanded = topBarDropdownExpanded,
+                            onDismissRequest = { topBarDropdownExpanded = false }
+                        ) {
+                            sellersList.forEach { seller ->
+                                DropdownMenuItem(
+                                    text = { Text(seller) },
+                                    onClick = {
+                                        viewModel.updateSellerName(seller)
+                                        topBarDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
                 ),
@@ -141,7 +188,7 @@ fun PosScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = String.format(Locale.FRANCE, "%,.0f CFA", uiState.totalAmount),
+                                text = uiState.totalAmount.formatAmount(settings.currency),
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.primary
@@ -300,6 +347,7 @@ fun PosScreen(
                             PosProductCard(
                                 product = product,
                                 category = category,
+                                settings = settings,
                                 quantityInCart = cartItem?.quantity ?: 0,
                                 allowNegativeStock = settings.allowNegativeStock,
                                 onAddToCart = { viewModel.addToCart(product) }
@@ -347,6 +395,7 @@ fun PosScreen(
         CartBottomSheet(
             uiState = uiState,
             businessMode = settings.businessMode,
+            settings = settings,
             customers = customers,
             onIncreaseQuantity = { viewModel.increaseQuantity(it) },
             onDecreaseQuantity = { viewModel.decreaseQuantity(it) },
@@ -391,7 +440,7 @@ fun PosScreen(
                 viewModel.clearCart()
                 showClearCartPinDialog = false
                 showCartSheet = false
-                Toast.makeText(context, "🗑️ Panier vidé avec succès", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "\uD83D\uDDD1\uFE0F Panier vidé avec succès", Toast.LENGTH_SHORT).show()
             }
         )
     }
@@ -425,10 +474,18 @@ fun PosScreen(
     if (showPaymentDialog) {
         PaymentDialog(
             totalAmount = uiState.totalAmount,
+            settings = settings,
             customerName = uiState.selectedCustomer?.name,
             onDismiss = { showPaymentDialog = false },
-            onConfirmPayment = { method, amountReceived ->
-                viewModel.processPayment(context, method, amountReceived) {
+            onConfirmPayment = { method, amountReceived, splitCash, splitOther, splitMethod ->
+                viewModel.processPayment(
+                    context, 
+                    method, 
+                    amountReceived,
+                    splitCash,
+                    splitOther,
+                    splitMethod
+                ) {
                     showPaymentDialog = false
                 }
             }
@@ -463,6 +520,7 @@ fun PosScreen(
 fun PosProductCard(
     product: ProductEntity,
     category: CategoryEntity?,
+    settings: com.sypos.mobile.data.local.ShopSettings,
     quantityInCart: Int,
     allowNegativeStock: Boolean,
     onAddToCart: () -> Unit
@@ -536,7 +594,6 @@ fun PosProductCard(
                     }
                 }
             }
-
             // Product Name
             Text(
                 text = product.name,
@@ -579,7 +636,7 @@ fun PosProductCard(
 
             // Price in CFA
             Text(
-                text = String.format(Locale.FRANCE, "%,.0f CFA", product.salePrice),
+                text = product.salePrice.formatAmount(settings.currency),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.primary
@@ -628,7 +685,7 @@ fun HeldTicketsDialog(
                                     Text(ticket.ticketNumber, fontWeight = FontWeight.Bold)
                                     if (!ticket.note.isNullOrBlank()) {
                                         Text(
-                                            text = "📌 ${ticket.note}",
+                                            text = "📍Œ ${ticket.note}",
                                             fontWeight = FontWeight.Bold,
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.primary
@@ -700,3 +757,7 @@ fun HoldCartNoteDialog(
         }
     )
 }
+
+
+
+

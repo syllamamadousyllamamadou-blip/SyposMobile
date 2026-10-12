@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manuel & Catalogue de Vente - SYPOS Mobile</title>
+    <style>
+        :root {
+            --primary: #059669;
+            --primary-light: #d1fae5;
+            --dark: #0f172a;
+            --gray: #64748b;
+            --bg: #f8fafc;
+        }
+        body { 
+            font-family: 'Segoe UI', system-ui, sans-serif; 
+            background: var(--bg); 
+            margin: 0; 
+            padding: 0; 
+            color: var(--dark);
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 40px auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            color: white;
+            padding: 60px 20px;
+            text-align: center;
+            border-bottom: 5px solid var(--primary);
+        }
+        .header h1 { margin: 0; font-size: clamp(2rem, 5vw, 3.5rem); color: var(--primary); }
+        .header h2 { margin: 15px 0 0 0; font-weight: 400; color: #cbd5e1; font-size: clamp(1rem, 3vw, 1.5rem); }
+        
+        .section {
+            padding: 40px;
+            border-bottom: 2px dashed #e2e8f0;
+        }
+        .section-title {
+            color: var(--primary);
+            font-size: clamp(1.5rem, 4vw, 2.2rem);
+            margin-top: 0;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .section-title span {
+            background: var(--primary-light);
+            color: var(--primary);
+            width: 50px; height: 50px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 50%;
+            font-size: 1.8rem;
+            flex-shrink: 0;
+        }
+
+        .step {
+            display: flex;
+            gap: 40px;
+            margin-top: 50px;
+            align-items: center;
+        }
+        .step:nth-child(even) {
+            flex-direction: row-reverse;
+        }
+        .step-content {
+            flex: 1;
+        }
+        .step-content h3 {
+            font-size: 1.8rem;
+            color: var(--dark);
+            margin-bottom: 15px;
+        }
+        .step-content > p {
+            font-size: 1.1rem;
+            color: var(--gray);
+            margin-bottom: 25px;
+        }
+        
+        .step-image {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            background: #f1f5f9;
+            padding: 20px;
+            border-radius: 16px;
+        }
+        .step-image img {
+            max-width: 100%;
+            max-height: 550px;
+            border-radius: 12px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            border: 1px solid #cbd5e1;
+        }
+
+        .feature-list {
+            list-style: none;
+            padding: 0;
+        }
+        .feature-list li {
+            background: white;
+            margin-bottom: 15px;
+            padding: 20px;
+            border-left: 5px solid var(--primary);
+            border-radius: 0 12px 12px 0;
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+            border: 1px solid #f1f5f9;
+        }
+        .feature-list li .icon {
+            font-size: 2rem;
+            background: var(--bg);
+            padding: 10px;
+            border-radius: 50%;
+        }
+        .feature-list li strong {
+            display: block;
+            color: var(--dark);
+            font-size: 1.2rem;
+            margin-bottom: 5px;
+        }
+        .feature-list li p {
+            margin: 0;
+            color: var(--gray);
+            font-size: 1rem;
+        }
+
+        .btn-print { 
+            display: block;
+            width: max-content;
+            margin: 30px auto;
+            padding: 15px 30px; 
+            background: var(--primary); 
+            color: white; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-size: 1.2rem; 
+            font-weight: bold; 
+            box-shadow: 0 4px 10px rgba(5, 150, 105, 0.3);
+            transition: transform 0.2s;
+        }
+        .btn-print:hover { transform: translateY(-3px); }
+
+        /* --- RESPONSIVE MOBILE --- */
+        @media (max-width: 900px) {
+            .container { margin: 0; border-radius: 0; }
+            .section { padding: 30px 20px; }
+            .step, .step:nth-child(even) { 
+                flex-direction: column; 
+                gap: 20px; 
+                margin-top: 40px;
+            }
+            .step-image { width: 100%; box-sizing: border-box; }
+            .step-image img { max-height: 450px; }
+            .feature-list li { padding: 15px; flex-direction: column; gap: 10px; }
+            .feature-list li .icon { display: none; }
+        }
+
+        @media print { 
+            body { background: white; padding: 0;} 
+            .container { box-shadow: none; margin: 0; }
+            .btn-print { display: none; } 
+            .step { break-inside: avoid; margin-bottom: 60px; }
+            .header { padding: 40px; border-bottom: 2px solid black; color: black; background: white;}
+            .header h1, .header h2 { color: black; }
+        }
+    </style>
+</head>
+<body>
+    <button class="btn-print" onclick="window.print()">🖨️ Télécharger le Guide en PDF</button>
+
+    <div class="container">
+        <div class="header">
+            <h1>SYPOS Mobile</h1>
+            <h2>Le Manuel d'Utilisation Décortiqué</h2>
+            <p style="font-size: 1.2rem; margin-top:20px;">Transformez votre appareil en une puissante machine de gestion.</p>
+        </div>
+
+        <!-- SECTION 1 : DEMARRAGE -->
+        <div class="section">
+            <h2 class="section-title"><span>1</span> Démarrage & Paramétrage</h2>
+            
+            <div class="step">
+                <div class="step-content">
+                    <h3>Activation de la Licence</h3>
+                    <p>Fini les installations compliquées ! SYPOS s'active à distance de manière ultra-sécurisée.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">🆔</div>
+                            <div>
+                                <strong>L'Identifiant Unique & Mode Démo</strong>
+                                <p>L'application génère un ID propre à votre téléphone. Aucun autre appareil ne pourra utiliser votre compte. Envoyez-nous cet ID pour activer l'application ou <b>activez une démo de 7 jours 100% gratuite et sans restriction</b> pour tester l'application en conditions réelles !</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="ACTIVATION.jpeg" alt="Activation">
+                </div>
+            </div>
+            
+            <div class="step">
+                <div class="step-content">
+                    <h3>Sécurité : Licence & Accès (Admin/Vendeurs)</h3>
+                    <p>Le contrôle total sur qui peut faire quoi dans votre commerce.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">🔐</div>
+                            <div>
+                                <strong>Mots de passe séparés & Sauvegarde</strong>
+                                <p>Un accès strict pour l'Admin et des profils vendeurs. Vos données de licence et mots de passe sont sauvegardés. L'Admin détient le contrôle exclusif.</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="SAUVEGARDE LICENCE MOT DE PASSE VENDEUR ADMIN.jpeg" alt="Sauvegarde Licence et MDP">
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-content">
+                    <h3>Identité de la Boutique</h3>
+                    <p>Votre commerce, votre image.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">⚙️</div>
+                            <div>
+                                <strong>Configuration Générale & Multi-vendeurs</strong>
+                                <p>Définissez le nom de la boutique, la devise utilisée et ajoutez le <b>Logo de l'entreprise</b>. Vous pouvez ajouter facilement <b>plusieurs vendeurs</b> en mettant simplement des virgules entre leurs noms.</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="PARAMETRE POUR PERSONNALISER LA BOUTIQUE.jpeg" alt="Paramètres">
+                </div>
+            </div>
+            
+            <div class="step">
+                <div class="step-content">
+                    <h3>Imprimante, Code Promo & TVA</h3>
+                    <p>SYPOS s'adapte à vos besoins pour un rendu professionnel.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">🖨️</div>
+                            <div>
+                                <strong>Configuration Poussée</strong>
+                                <p>Connectez votre imprimante thermique Bluetooth. Vous pouvez également <b>définir un code promo avec une limite</b>, et <b>activer ou désactiver la TVA</b> sur la facture !</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="AJOUTER LE CODE PROMO ET CONNECTER L4IMPRIMANTE.jpeg" alt="Imprimante et Promo">
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 2 : PRODUITS ET CLIENTS -->
+        <div class="section">
+            <h2 class="section-title"><span>2</span> Gestion des Produits & Clients</h2>
+            
+            <div class="step">
+                <div class="step-content">
+                    <h3>Générateur de Codes-Barres</h3>
+                    <p>Créez et gérez votre stock de manière professionnelle.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">🏷️</div>
+                            <div>
+                                <strong>Codes-Barres et Livraison</strong>
+                                <p>Générez vos propres codes-barres. Vous pouvez également éditer des fiches de livraison propres et structurées pour vos expéditions.</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="GENERATEUR DE CODE BARRE ET FICHE DE LIVRAISON.jpeg" alt="Code Barre">
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-content">
+                    <h3>Base de Données Client (CRM)</h3>
+                    <p>Un bon commerçant connaît ses clients. SYPOS vous aide à ne jamais les oublier.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">👥</div>
+                            <div>
+                                <strong>Recherche & Relances</strong>
+                                <p>Tapez le nom du client pour faire sa recherche instantanément. Vous pouvez effectuer des relances ciblées et <b>télécharger la base de données</b> de vos clients vous-même !</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="BASE DE DONNEE CLIENT ET RELANCE.jpeg" alt="Clients">
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 3 : LA CAISSE -->
+        <div class="section">
+            <h2 class="section-title"><span>3</span> En Caisse (L'Action)</h2>
+            
+            <div class="step">
+                <div class="step-content">
+                    <h3>Le Point de Vente Ultra-Rapide</h3>
+                    <p>Tout pour vendre vite et sans erreur.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">⚡</div>
+                            <div>
+                                <strong>Fonctionnalités avancées de la Caisse</strong>
+                                <p>
+                                    - Scannez le code-barre avec la caméra de l'appareil.<br>
+                                    - Saisissez manuellement le nom ou cherchez un article.<br>
+                                    - Sélectionnez le Vendeur (son nom sera imprimé sur le reçu).<br>
+                                    - Mettez une vente en pause pour faire passer un autre client.<br>
+                                    - Verrouillez rapidement l'appareil.<br>
+                                    - Accès aux paramètres réservé à l'Admin uniquement.
+                                </p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="CAISSE POINT DE VENTE.jpeg" alt="Point de vente">
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-content">
+                    <h3>Sélectionner les Produits</h3>
+                    <p>Alimentez le panier du client très rapidement.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">🛒</div>
+                            <div>
+                                <strong>Vente Fluide</strong>
+                                <p>Vérifiez les quantités et le montant total avant de valider l'encaissement.</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="SELECTIONNER UN PRODUIT A LA  CAISSE.jpeg" alt="Sélection">
+                </div>
+            </div>
+            
+            <div class="step">
+                <div class="step-content">
+                    <h3>Effectuer la Vente</h3>
+                    <p>Le clavier numérique intégré pour saisir l'argent.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">🔢</div>
+                            <div>
+                                <strong>Validation et Monnaie</strong>
+                                <p>Entrez la somme remise par le client, la machine calcule automatiquement et précisément la monnaie à rendre.</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="EFFECTUER UNE VENTE.jpeg" alt="Effectuer Vente">
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-content">
+                    <h3>Choisir le Moyen de Paiement</h3>
+                    <p>S'adapter à tous les clients.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">💵</div>
+                            <div>
+                                <strong>Espèces, Mobile Money, ou Carte</strong>
+                                <p>Sélectionnez le type de paiement. Indispensable pour avoir une comptabilité claire le soir.</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="CHOISIR LE MOYEN DE PAIMENT.jpeg" alt="Moyen de paiement">
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-content">
+                    <h3>Impression & Reçu WhatsApp</h3>
+                    <p>L'argument commercial numéro 1 pour moderniser votre image.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">📲</div>
+                            <div>
+                                <strong>Envoi direct & Papier</strong>
+                                <p>Imprimez le ticket de caisse classique, ou envoyez un reçu électronique professionnel directement sur le numéro WhatsApp de votre client. Plus d'économie, plus d'écologie !</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="IMPRESSION DU RECU EN ENVOI PAR WHATSAPP DU RECU.jpeg" alt="Reçu WhatsApp">
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 4 : SÉCURITÉ ET RAPPORTS -->
+        <div class="section">
+            <h2 class="section-title"><span>4</span> Sécurité & Rapports Financiers</h2>
+            
+            <div class="step">
+                <div class="step-content">
+                    <h3>Historique de Vente (Réimpression & Annulation)</h3>
+                    <p>Un contrôle total sur tout ce qui a été encaissé.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">📖</div>
+                            <div>
+                                <strong>Historique & Export (PDF/CSV)</strong>
+                                <p>Retrouvez toutes les ventes pour les exporter. Depuis l'historique, vous pouvez <b>réimprimer un ticket</b> ou <b>le renvoyer par WhatsApp</b>.</p>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="icon">🚨</div>
+                            <div>
+                                <strong>Annulation Sécurisée</strong>
+                                <p><b>Attention :</b> Seul l'Administrateur a le droit d'annuler ou de supprimer une vente. Toute suppression garde une traçabilité pour éviter les fraudes des employés.</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="HISTORIQUE DE VENTE ET RAPPORT PDF ET CSV.jpeg" alt="Historique">
+                </div>
+            </div>
+            
+            <div class="step">
+                <div class="step-content">
+                    <h3>Accès Limité pour le Vendeur</h3>
+                    <p>Le patron dort tranquille, l'application surveille.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">🔒</div>
+                            <div>
+                                <strong>Protection de la caisse</strong>
+                                <p>Le caissier n'a accès qu'à la vente. Il ne peut pas voir vos bénéfices ni manipuler les paramètres sans votre accord.</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="ACCES LIMITE POUR LE VENDEUR.jpeg" alt="Accès limité">
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-content">
+                    <h3>Vider la Caisse (Contrôle)</h3>
+                    <p>Gérez les sorties d'argent.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">🛡️</div>
+                            <div>
+                                <strong>Sécurité maximale</strong>
+                                <p>Pour vider la caisse ou enregistrer une dépense majeure, le mot de passe de l'Administrateur (le patron) est obligatoirement requis.</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="VIDER LA CAISSE EN METTANT LE MOT DE PASSE DE L'ADMIN.jpeg" alt="Vider la caisse">
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-content">
+                    <h3>Bilan Financier (Rapport Z)</h3>
+                    <p>La fin de journée n'a jamais été aussi simple.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">📊</div>
+                            <div>
+                                <strong>Le Rapport Z</strong>
+                                <p>Générez un rapport détaillé en un clic : total vendu, bénéfices nets, et argent liquide attendu. Plus d'erreurs de comptabilité !</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="BIELAN ET RAPPORT Z.jpeg" alt="Rapport Z">
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-content">
+                    <h3>Le Verrouillage à Distance</h3>
+                    <p>L'arme ultime pour protéger votre affaire.</p>
+                    <ul class="feature-list">
+                        <li>
+                            <div class="icon">🛑</div>
+                            <div>
+                                <strong>Blocage Total</strong>
+                                <p>En cas de non-paiement ou de vol de l'appareil, l'application peut être verrouillée à distance. Un écran rouge de sécurité empêchera toute utilisation.</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="step-image">
+                    <img src="VEROUILLER L'APPLICATION.jpeg" alt="Verrouillage">
+                </div>
+            </div>
+        </div>
+
+        <div style="text-align: center; padding: 60px 20px; background: linear-gradient(135deg, #0f172a, #1e293b); color: white;">
+            <h2 style="color: var(--primary); font-size: 2.5rem; margin-top: 0;">L'Outil Indispensable pour votre Commerce</h2>
+            <p style="font-size: 1.2rem; margin-bottom: 30px;">Ne laissez plus la gestion au hasard. Passez au niveau supérieur avec SYPOS Mobile.</p>
+            <div style="font-size: 1.5rem; font-weight: bold;">
+                📞 Contact Commercial : +225 0574566438
+            </div>
+        </div>
+    </div>
+</body>
+</html>

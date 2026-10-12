@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -68,25 +69,39 @@ fun PinLockScreen(
             verticalArrangement = Arrangement.Center
         ) {
             // Store Icon & Name
-            Surface(
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                shape = CircleShape,
-                modifier = Modifier.size(80.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Default.Storefront,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(44.dp)
-                    )
+            val logoFile = settings.shopLogoUri?.let { java.io.File(it) }
+            val logoBitmap = if (logoFile != null && logoFile.exists()) {
+                android.graphics.BitmapFactory.decodeFile(logoFile.absolutePath)
+            } else null
+            
+            if (logoBitmap != null) {
+                androidx.compose.foundation.Image(
+                    bitmap = logoBitmap.asImageBitmap(),
+                    contentDescription = "Logo",
+                    modifier = Modifier.size(100.dp).clip(RoundedCornerShape(16.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+            } else {
+                Surface(
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    shape = CircleShape,
+                    modifier = Modifier.size(80.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Storefront,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(44.dp)
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = settings.shopName.ifBlank { "SYPOS MOBILE" },
+                text = settings.shopName.ifBlank { "KAYO MOBILE" },
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground

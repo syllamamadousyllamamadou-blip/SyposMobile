@@ -36,6 +36,8 @@ import com.sypos.mobile.util.DeviceSecurityHelper
 import com.sypos.mobile.util.LicenseManager
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.sypos.mobile.ui.settings.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,12 +49,15 @@ fun LicenseDialog(
 ) {
     val context = LocalContext.current
     val deviceId = remember { DeviceSecurityHelper.getDeviceId(context) }
+    val viewModel: SettingsViewModel = hiltViewModel()
     
     var keyInput by remember { mutableStateOf(settings.licenseKey) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isStartingTrial by remember { mutableStateOf(false) }
     var showQrScanner by remember { mutableStateOf(false) }
 
-    val isCurrentlyActive = settings.isLicensed && !LicenseManager.isLicenseExpired(settings.licenseExpiryDate)
+    val isBlockedOrPaused = settings.licenseType == "BLOCKED" || settings.licenseType == "PAUSED"
+    val isCurrentlyActive = settings.isLicensed && !LicenseManager.isLicenseExpired(settings.licenseExpiryDate) && !isBlockedOrPaused
 
     if (showQrScanner) {
         Dialog(
@@ -82,9 +87,11 @@ fun LicenseDialog(
         return
     }
 
+    val isForced = isInitialSetup || isBlockedOrPaused
+
     AlertDialog(
-        onDismissRequest = { if (!isInitialSetup) onDismiss() },
-        properties = DialogProperties(dismissOnBackPress = !isInitialSetup, dismissOnClickOutside = !isInitialSetup),
+        onDismissRequest = { if (!isForced) onDismiss() },
+        properties = DialogProperties(dismissOnBackPress = !isForced, dismissOnClickOutside = !isForced),
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -106,7 +113,7 @@ fun LicenseDialog(
                 }
                 Column {
                     Text(
-                        text = if (isInitialSetup) "Activation SYPOS Mobile" else "Gestion de la Licence",
+                        text = if (isInitialSetup) "Activation KAYO Mobile" else "Gestion de la Licence",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -126,7 +133,30 @@ fun LicenseDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // 1. Status Banner if already licensed
-                if (isCurrentlyActive) {
+                if (isBlockedOrPaused) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer)
+                            Column {
+                                Text(
+                                    if (settings.licenseType == "PAUSED") "Abonnement en Pause" else "Accès Bloqué", 
+                                    fontWeight = FontWeight.Bold, 
+                                    color = MaterialTheme.colorScheme.onErrorContainer, 
+                                    fontSize = 13.sp
+                                )
+                                Text("Veuillez contacter l'administrateur au 0758245530 pour régulariser votre situation.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+                            }
+                        }
+                    }
+                } else if (isCurrentlyActive) {
                     Surface(
                         color = Color(0xFFE8F5E9),
                         shape = RoundedCornerShape(12.dp),
@@ -157,8 +187,25 @@ fun LicenseDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "Bienvenue sur SYPOS Mobile ! Pour déverrouiller votre caisse, transmettez votre ID Appareil à votre administrateur pour recevoir votre clé officielle.",
+                            text = "Bienvenue sur KAYO Mobile ! Pour déverrouiller votre caisse, transmettez votre ID Appareil à votre administrateur pour recevoir votre clé officielle.",
                             style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                } else {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = if (settings.licenseType == "TRIAL") {
+                                "Période d'essai de 7 jours expirée. Veuillez contacter le développeur (KAYO) au +2250758245530 ou votre administrateur pour obtenir une licence officielle afin de continuer."
+                            } else {
+                                "Votre abonnement / licence a expiré ou a été bloqué. Veuillez contacter votre administrateur pour la renouveler."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
                             modifier = Modifier.padding(10.dp)
                         )
                     }
@@ -213,7 +260,7 @@ fun LicenseDialog(
                             OutlinedButton(
                                 onClick = {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clip = ClipData.newPlainText("SYPOS Device ID", deviceId)
+                                    val clip = ClipData.newPlainText("KAYO Device ID", deviceId)
                                     clipboard.setPrimaryClip(clip)
                                     Toast.makeText(context, "ID Appareil copié dans le presse-papier !", Toast.LENGTH_SHORT).show()
                                 },
@@ -228,7 +275,7 @@ fun LicenseDialog(
 
                             Button(
                                 onClick = {
-                                    val message = "Bonjour SYPOS, voici mon ID Appareil pour activer ma licence :\n\n📱 *ID :* ${deviceId}\n🏪 *Boutique :* ${settings.shopName}"
+                                    val message = "Bonjour KAYO, voici mon ID Appareil pour activer ma licence :\n\n📱 *ID :* ${deviceId}\n🏪 *Boutique :* ${settings.shopName}"
                                     val sendIntent = Intent(Intent.ACTION_VIEW).apply {
                                         data = Uri.parse("https://api.whatsapp.com/send?text=" + Uri.encode(message))
                                     }
@@ -307,23 +354,45 @@ fun LicenseDialog(
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    val status = LicenseManager.validateKey(context, keyInput)
-                    if (status.isValid) {
-                        onSaveLicense(keyInput.trim(), status.licenseType, status.expiryTimestamp)
-                        Toast.makeText(context, "✅ ${status.message}", Toast.LENGTH_LONG).show()
-                        if (!isInitialSetup) onDismiss()
-                    } else {
-                        errorMessage = status.message
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        val status = LicenseManager.validateKey(context, keyInput)
+                        if (status.isValid) {
+                            onSaveLicense(keyInput.trim(), status.licenseType, status.expiryTimestamp)
+                            Toast.makeText(context, "✅ ${status.message}", Toast.LENGTH_LONG).show()
+                            if (!isInitialSetup) onDismiss()
+                        } else {
+                            errorMessage = status.message
+                        }
+                    },
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(if (isCurrentlyActive) "Mettre à jour" else "Activer la Caisse")
+                }
+                
+                if (isInitialSetup) {
+                    TextButton(
+                        onClick = {
+                            isStartingTrial = true
+                            viewModel.startFreeTrial(context) { success, message ->
+                                isStartingTrial = false
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                                if (success) {
+                                    // Let Firebase listener handle it
+                                } else {
+                                    errorMessage = message
+                                }
+                            }
+                        },
+                        enabled = !isStartingTrial
+                    ) {
+                        Text(if (isStartingTrial) "Connexion..." else "Démarrer essai 7 jours")
                     }
-                },
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Text(if (isCurrentlyActive) "Mettre à jour" else "Activer la Caisse")
+                }
             }
         },
-        dismissButton = if (!isInitialSetup) {
+        dismissButton = if (!isForced) {
             {
                 TextButton(onClick = onDismiss) {
                     Text("Fermer")

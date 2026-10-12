@@ -1,5 +1,6 @@
 package com.sypos.mobile.ui.pos
 
+import com.sypos.mobile.util.CurrencyUtils.formatAmount
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
@@ -8,9 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Print
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,6 +23,7 @@ import com.sypos.mobile.data.local.ShopSettings
 import com.sypos.mobile.data.local.entity.TicketEntity
 import com.sypos.mobile.data.local.entity.TicketItemEntity
 import com.sypos.mobile.util.BluetoothPrinterHelper
+import com.sypos.mobile.util.ReceiptImageGenerator
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -126,7 +126,7 @@ fun ReceiptDialog(
                                 modifier = Modifier.weight(1f)
                             )
                             Text(
-                                text = String.format(Locale.FRANCE, "%,.0f CFA", item.total),
+                                text = item.total.formatAmount(settings.currency),
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -143,7 +143,7 @@ fun ReceiptDialog(
                         ) {
                             Text("Remise :", style = MaterialTheme.typography.bodySmall)
                             Text(
-                                text = "-${String.format(Locale.FRANCE, "%,.0f CFA", ticket.discount)}",
+                                text = "-${ticket.discount.formatAmount(settings.currency)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error
                             )
@@ -157,7 +157,7 @@ fun ReceiptDialog(
                         ) {
                             Text("Sous-Total HT :", style = MaterialTheme.typography.bodySmall)
                             Text(
-                                text = String.format(Locale.FRANCE, "%,.0f CFA", ticket.subTotal - ticket.discount),
+                                text = (ticket.subTotal - ticket.discount).formatAmount(settings.currency),
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -167,7 +167,7 @@ fun ReceiptDialog(
                         ) {
                             Text("TVA (${settings.taxRatePercent.toInt()}%) :", style = MaterialTheme.typography.bodySmall)
                             Text(
-                                text = String.format(Locale.FRANCE, "%,.0f CFA", ticket.taxAmount),
+                                text = ticket.taxAmount.formatAmount(settings.currency),
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -181,7 +181,7 @@ fun ReceiptDialog(
                     ) {
                         Text(if (ticket.taxAmount > 0) "TOTAL TTC" else "TOTAL", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text(
-                            text = String.format(Locale.FRANCE, "%,.0f CFA", ticket.totalAmount),
+                            text = ticket.totalAmount.formatAmount(settings.currency),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.primary
@@ -207,7 +207,7 @@ fun ReceiptDialog(
                         ) {
                             Text("Montant remis :", style = MaterialTheme.typography.bodySmall)
                             Text(
-                                text = String.format(Locale.FRANCE, "%,.0f CFA", ticket.amountPaid),
+                                text = ticket.amountPaid.formatAmount(settings.currency),
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold
                             )
@@ -221,7 +221,7 @@ fun ReceiptDialog(
                         ) {
                             Text("Monnaie rendue :", style = MaterialTheme.typography.bodySmall)
                             Text(
-                                text = String.format(Locale.FRANCE, "%,.0f CFA", ticket.changeReturned),
+                                text = ticket.changeReturned.formatAmount(settings.currency),
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF2E7D32)
@@ -275,14 +275,27 @@ fun ReceiptDialog(
                     }
                 }
 
-                // WhatsApp Share Button
+                // WhatsApp PNG Image Share Button (Primary)
                 Button(
-                    onClick = { shareReceiptText(context, ticket, items, customerName, settings) },
+                    onClick = {
+                        ReceiptImageGenerator.shareReceiptPng(context, ticket, items, customerName, settings)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("WhatsApp")
+                    Text("Reçu PNG", fontWeight = FontWeight.Bold)
+                }
+
+                // WhatsApp Text Share Button
+                OutlinedButton(
+                    onClick = { shareReceiptText(context, ticket, items, customerName, settings) },
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Texte")
                 }
             }
         },
@@ -304,7 +317,7 @@ fun shareReceiptText(
     val dateStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE).format(Date(ticket.date))
     val sb = StringBuilder()
     sb.appendLine("🧾 *${settings.shopName.uppercase(Locale.getDefault())}*")
-    if (settings.shopAddress.isNotBlank()) sb.appendLine("📍 ${settings.shopAddress}")
+    if (settings.shopAddress.isNotBlank()) sb.appendLine("📍 ${settings.shopAddress}")
     if (settings.shopPhone.isNotBlank()) sb.appendLine("📞 ${settings.shopPhone}")
     sb.appendLine("--------------------------------")
     sb.appendLine("Ticket N°: ${ticket.ticketNumber}")
@@ -314,24 +327,24 @@ fun shareReceiptText(
     }
     sb.appendLine("--------------------------------")
     items.forEach { item ->
-        sb.appendLine("${item.quantity}x ${item.productName} = ${String.format(Locale.FRANCE, "%,.0f CFA", item.total)}")
+        sb.appendLine("${item.quantity}x ${item.productName} = ${item.total.formatAmount(settings.currency)}")
     }
     sb.appendLine("--------------------------------")
     if (ticket.discount > 0) {
-        sb.appendLine("Remise: -${String.format(Locale.FRANCE, "%,.0f CFA", ticket.discount)}")
+        sb.appendLine("Remise: -${ticket.discount.formatAmount(settings.currency)}")
     }
     if (ticket.taxAmount > 0) {
-        sb.appendLine("Sous-Total HT: ${String.format(Locale.FRANCE, "%,.0f CFA", ticket.subTotal - ticket.discount)}")
-        sb.appendLine("TVA (${settings.taxRatePercent.toInt()}%): ${String.format(Locale.FRANCE, "%,.0f CFA", ticket.taxAmount)}")
+        sb.appendLine("Sous-Total HT: ${(ticket.subTotal - ticket.discount).formatAmount(settings.currency)}")
+        sb.appendLine("TVA (${settings.taxRatePercent.toInt()}%): ${ticket.taxAmount.formatAmount(settings.currency)}")
     }
     val totalLabel = if (ticket.taxAmount > 0) "*TOTAL TTC" else "*TOTAL"
-    sb.appendLine("$totalLabel : ${String.format(Locale.FRANCE, "%,.0f CFA", ticket.totalAmount)}*")
+    sb.appendLine("$totalLabel : ${ticket.totalAmount.formatAmount(settings.currency)}*")
     sb.appendLine("Paiement: ${ticket.paymentMethod?.name ?: "ESPECES"}")
     if (ticket.amountPaid > 0 || ticket.paymentMethod == com.sypos.mobile.data.local.entity.PaymentMethod.CASH) {
-        sb.appendLine("Montant remis: ${String.format(Locale.FRANCE, "%,.0f CFA", ticket.amountPaid)}")
+        sb.appendLine("Montant remis: ${ticket.amountPaid.formatAmount(settings.currency)}")
     }
     if (ticket.changeReturned > 0) {
-        sb.appendLine("Monnaie rendue: ${String.format(Locale.FRANCE, "%,.0f CFA", ticket.changeReturned)}")
+        sb.appendLine("Monnaie rendue: ${ticket.changeReturned.formatAmount(settings.currency)}")
     }
     if (settings.receiptFooter.isNotBlank()) {
         sb.appendLine("\n${settings.receiptFooter}")
@@ -345,3 +358,4 @@ fun shareReceiptText(
     val shareIntent = Intent.createChooser(sendIntent, "Partager le ticket")
     context.startActivity(shareIntent)
 }
+

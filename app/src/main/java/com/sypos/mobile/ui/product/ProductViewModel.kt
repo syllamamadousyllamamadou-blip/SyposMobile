@@ -8,6 +8,8 @@ import com.sypos.mobile.data.local.entity.CategoryEntity
 import com.sypos.mobile.data.local.entity.ProductEntity
 import com.sypos.mobile.domain.repository.CategoryRepository
 import com.sypos.mobile.domain.repository.ProductRepository
+import com.sypos.mobile.data.remote.CloudSyncManager
+import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -22,7 +24,8 @@ import javax.inject.Inject
 class ProductViewModel @Inject constructor(
     private val productRepository: ProductRepository,
     private val categoryRepository: CategoryRepository,
-    private val shopSettingsManager: ShopSettingsManager
+    private val shopSettingsManager: ShopSettingsManager,
+    private val cloudSyncManager: CloudSyncManager
 ) : ViewModel() {
 
     val settings: StateFlow<ShopSettings> = shopSettingsManager.settings
@@ -63,10 +66,20 @@ class ProductViewModel @Inject constructor(
         return productRepository.getProductById(id)
     }
 
-    fun saveProduct(product: ProductEntity) {
-        viewModelScope.launch {
-            productRepository.insertProduct(product)
+    suspend fun saveProduct(product: ProductEntity): String? {
+        if (!product.barcode.isNullOrBlank()) {
+            val existing = productRepository.getProductByBarcode(product.barcode)
+            if (existing != null && existing.id != product.id) {
+                return "Ce code-barres est déjà utilisé par : ${existing.name}"
+            }
         }
+        
+        productRepository.insertProduct(product)
+        val uid = shopSettingsManager.getEffectiveShopId()
+        if (uid.isNotBlank()) {
+            cloudSyncManager.pushProduct(uid, product)
+        }
+        return null
     }
 
     fun updateStock(productId: String, delta: Int) {
@@ -76,18 +89,57 @@ class ProductViewModel @Inject constructor(
             } else if (delta < 0) {
                 productRepository.decreaseStock(productId, -delta)
             }
+            // Fetch updated product to push to cloud
+            val updatedProduct = productRepository.getProductById(productId)
+            if (updatedProduct != null) {
+                val uid = shopSettingsManager.getEffectiveShopId()
+                if (uid.isNotBlank()) {
+                    cloudSyncManager.pushProduct(uid, updatedProduct)
+                }
+            }
         }
     }
 
     fun deleteProduct(product: ProductEntity) {
         viewModelScope.launch {
             productRepository.deleteProduct(product)
+            val shopId = shopSettingsManager.getEffectiveShopId()
+            if (shopId.isNotBlank()) {
+                cloudSyncManager.deleteProduct(shopId, product.id)
+            }
         }
     }
 
     fun addCategory(category: CategoryEntity) {
         viewModelScope.launch {
             categoryRepository.insertCategory(category)
+            val shopId = shopSettingsManager.getEffectiveShopId()
+            if (shopId.isNotBlank()) {
+                cloudSyncManager.pushCategory(shopId, category)
+            }
+        }
+    }
+
+    fun updateCategory(category: CategoryEntity) {
+        viewModelScope.launch {
+            categoryRepository.updateCategory(category)
+            val shopId = shopSettingsManager.getEffectiveShopId()
+            if (shopId.isNotBlank()) {
+                cloudSyncManager.pushCategory(shopId, category)
+            }
+        }
+    }
+
+    fun deleteCategory(category: CategoryEntity) {
+        viewModelScope.launch {
+            categoryRepository.deleteCategory(category)
+            if (_selectedCategoryId.value == category.id) {
+                _selectedCategoryId.value = null
+            }
+            val shopId = shopSettingsManager.getEffectiveShopId()
+            if (shopId.isNotBlank()) {
+                cloudSyncManager.deleteCategory(shopId, category.id)
+            }
         }
     }
 }

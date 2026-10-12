@@ -20,6 +20,8 @@
   <script src="https://cdn.jsdelivr.net/npm/node-forge@1.3.1/dist/forge.min.js"></script>
   <!-- HTML5 Barcode Scanner Library -->
   <script src="https://cdn.jsdelivr.net/npm/html5-qrcode/html5-qrcode.min.js"></script>
+  <!-- html2canvas for High Resolution PNG Receipt Generation -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 </head>
 <body>
 
@@ -129,15 +131,40 @@
       </div>
     </section>
 
-    <!-- TAB 5: CLIENTS & CRÉDITS -->
+    <!-- TAB 5: BASE DE DONNÉES CLIENTS (CRM) -->
     <section id="view-customers" class="view-section">
-      <div class="card-group" style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <div style="font-size: 12px; color: var(--text-muted);">Total Dettes Clients</div>
-          <div id="customerTotalDebt" style="font-size: 20px; font-weight: 700; color: var(--danger);">0 CFA</div>
+      <!-- CRM Header Summary -->
+      <div class="card-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+        <div style="background: var(--bg-system); padding: 12px; border-radius: 12px;">
+          <div style="font-size: 11px; color: var(--text-muted);">Clients Enregistrés</div>
+          <div id="customerCountTotal" style="font-size: 18px; font-weight: 800; color: var(--primary);">0</div>
         </div>
-        <button class="btn-main" id="btnAddCustomer" style="width: auto; height: 36px; padding: 0 12px; font-size: 13px; margin:0;">+ Nouveau</button>
+        <div style="background: var(--bg-system); padding: 12px; border-radius: 12px;">
+          <div style="font-size: 11px; color: var(--text-muted);">Total Achats Clients</div>
+          <div id="customerTotalSales" style="font-size: 18px; font-weight: 800; color: var(--success);">0 CFA</div>
+        </div>
       </div>
+
+      <!-- Action Bar & Search -->
+      <div class="search-bar-wrap" style="margin-bottom: 10px;">
+        <div class="search-box">
+          <span>🔍</span>
+          <input type="text" id="custSearchInput" placeholder="Rechercher par nom ou téléphone...">
+        </div>
+        <button class="btn-main" id="btnAddCustomer" style="width: auto; height: 44px; padding: 0 14px; font-size: 13px; margin:0; white-space:nowrap;">
+          ➕ Nouveau
+        </button>
+      </div>
+
+      <!-- CRM Filter Pills -->
+      <div class="category-scroll" id="custFilterScroll" style="margin-bottom: 12px;">
+        <button class="cat-pill active cust-filter-pill" data-filter="all">Tous les Clients</button>
+        <button class="cat-pill cust-filter-pill" data-filter="vip">⭐ Top Acheteurs (VIP)</button>
+        <button class="cat-pill cust-filter-pill" data-filter="recent">🆕 Récents (7j)</button>
+        <button class="cat-pill cust-filter-pill" data-filter="inactive">⏰ Inactifs (+30j)</button>
+      </div>
+
+      <!-- Customer List Container -->
       <div id="customersListContainer"></div>
     </section>
 
@@ -245,6 +272,57 @@
         </div>
       </div>
 
+      <!-- Google Sheets Live Remote Tracking -->
+      <div class="card-group">
+        <h3 style="font-size: 16px; margin-bottom: 8px;">📊 Suivi à Distance Google Sheets</h3>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+          Synchronisez automatiquement chaque vente et dépense vers votre tableur Google Sheets en temps réel sans jamais ralentir la caisse.
+        </p>
+
+        <div class="form-group">
+          <label>URL Webhook Apps Script</label>
+          <input type="url" class="form-control" id="setGoogleSheetsUrl" placeholder="https://script.google.com/macros/s/.../exec">
+        </div>
+
+        <div class="form-group" style="display: flex; justify-content: space-between; align-items: center;">
+          <label style="margin:0;">Activer la synchronisation automatique</label>
+          <input type="checkbox" id="setGoogleSheetsSync" style="transform: scale(1.3);">
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px;">
+          <button type="button" class="btn-main btn-secondary" id="btnTestGoogleSheets" style="margin:0; font-size:12px; height:38px;">
+            🧪 Tester Connexion
+          </button>
+          <button type="button" class="btn-main btn-secondary" id="btnOpenAppsScriptModal" style="margin:0; font-size:12px; height:38px;">
+            📋 Copier le Script
+          </button>
+        </div>
+      </div>
+
+      <!-- Backup & Data Safety -->
+      <div class="card-group">
+        <h3 style="font-size: 16px; margin-bottom: 8px;">💾 Sauvegarde & Sécurité des Données</h3>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+          Exportez une copie de secours de votre catalogue, clients et historique pour ne jamais perdre vos données en cas de changement d'appareil.
+        </p>
+
+        <input type="file" id="inputRestoreBackupFile" accept=".json" style="display:none;">
+
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <button type="button" class="btn-main" id="btnExportBackupJson" style="margin:0; background: var(--primary);">
+            📥 Exporter Sauvegarde Complète (.json)
+          </button>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <button type="button" class="btn-main btn-secondary" id="btnImportBackupJson" style="margin:0; font-size:12px; height:38px;">
+              📤 Restaurer Fichier
+            </button>
+            <button type="button" class="btn-main btn-secondary" id="btnShareBackupWhatsApp" style="margin:0; font-size:12px; height:38px; color:#25D366;">
+              💬 Envoi WhatsApp
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div class="card-group">
         <h3 style="font-size: 16px; margin-bottom: 12px;">🛡️ Sécurité & Signature</h3>
         <div class="form-group" style="display: flex; justify-content: space-between; align-items: center;">
@@ -324,6 +402,18 @@
         <button class="icon-btn close-modal">✕</button>
       </div>
       <div class="sheet-content">
+        <!-- Fast Customer Selector (Speed / 100% Optionnel) -->
+        <div class="form-group" style="margin-bottom: 12px; background: var(--surface-variant); padding: 10px; border-radius: 12px; border: 1px solid var(--border);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label style="font-size: 12px; font-weight: 700; margin: 0;">👤 Associer un Client (Optionnel)</label>
+            <button type="button" class="btn-main btn-secondary" id="btnQuickAddCustFromCart" style="font-size: 11px; width: auto; height: 26px; padding: 0 8px; border-radius: 6px; margin:0;" title="Nouveau Client Express">➕ Nouveau</button>
+          </div>
+          <select class="form-control" id="cartCustomerSelect" style="font-size: 13px; height: 38px;">
+            <option value="">-- Client Comptoir (Anonyme) --</option>
+          </select>
+          <div id="cartCustomerDetailsBadge" style="display:none; font-size: 11px; color: var(--primary); margin-top: 4px; font-weight: 600;"></div>
+        </div>
+
         <div id="cartItemsList"></div>
 
         <div style="margin-top: 14px;">
@@ -370,24 +460,17 @@
         <div style="text-align: center; margin-bottom: 14px;">
           <div style="font-size: 13px; color: var(--text-muted);">Montant à payer</div>
           <div id="payAmountDue" style="font-size: 26px; font-weight: 800; color: var(--primary);">0 CFA</div>
+          <div id="payAssignedCustomerBadge" style="display:none; font-size:12px; color:var(--primary); font-weight:600; margin-top:4px;"></div>
         </div>
 
         <div class="form-group">
           <label>Mode de Règlement</label>
           <select class="form-control" id="payPaymentMethod">
-            <option value="cash">💵 Espèces</option>
+            <option value="cash">💵 Espèces (Cash)</option>
             <option value="wave">🌊 Wave Mobile Money</option>
             <option value="om">🟠 Orange Money</option>
             <option value="momo">🟡 MTN MoMo</option>
             <option value="card">💳 Carte Bancaire</option>
-            <option value="credit">📝 Crédit / Dette Client</option>
-          </select>
-        </div>
-
-        <div class="form-group" id="payCustomerGroup" style="display:none;">
-          <label>Attribuer au Client</label>
-          <select class="form-control" id="payCustomerSelect">
-            <option value="">Sélectionner un client...</option>
           </select>
         </div>
 
@@ -401,7 +484,7 @@
           <div id="payChangeDueAmount" style="font-size: 20px; font-weight: 800; color: #2e7d32;">0 CFA</div>
         </div>
 
-        <button class="btn-main" id="btnConfirmPayment">✅ Valider la Vente</button>
+        <button class="btn-main" id="btnConfirmPayment">✅ Valider l'Encaissement</button>
       </div>
     </div>
   </div>
@@ -419,10 +502,11 @@
         <button class="btn-main" id="btnPrintBleDirectBtn" style="margin-top: 14px; background: var(--primary); font-size: 15px; height: 48px;">
           🖨️ Imprimer le Reçu (Bluetooth Direct)
         </button>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px;">
-          <button class="btn-main" id="btnShareWhatsAppBtn" style="margin:0; background: #25D366;">💬 WhatsApp</button>
-          <button class="btn-main btn-secondary" id="btnPrintReceiptBtn" style="margin:0;">📄 AirPrint / PDF</button>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+          <button class="btn-main" id="btnShareWhatsAppPngBtn" style="margin:0; background: #25D366; font-size:13px;">🖼️ WhatsApp (PNG)</button>
+          <button class="btn-main btn-secondary" id="btnShareWhatsAppTextBtn" style="margin:0; font-size:13px;">💬 WhatsApp (Texte)</button>
         </div>
+        <button class="btn-main btn-secondary" id="btnPrintReceiptBtn" style="margin-top:8px;">📄 AirPrint / PDF</button>
       </div>
     </div>
   </div>
@@ -625,28 +709,110 @@
     </div>
   </div>
 
-  <!-- MODAL: AJOUTER CLIENT -->
+  <!-- MODAL: AJOUTER / MODIFIER CLIENT (CRM) -->
   <div class="modal-overlay" id="modalCustomer">
     <div class="bottom-sheet">
       <div class="sheet-handle"></div>
       <div class="sheet-header">
-        <div class="sheet-title">👤 Nouveau Client</div>
+        <div class="sheet-title" id="modalCustomerTitle">👤 Nouveau Client</div>
         <button class="icon-btn close-modal">✕</button>
       </div>
       <div class="sheet-content">
+        <input type="hidden" id="custEditId">
         <div class="form-group">
-          <label>Nom Complet du Client *</label>
+          <label>Nom & Prénom du Client *</label>
           <input type="text" class="form-control" id="custInputName" placeholder="Ex: Koné Amadou">
         </div>
         <div class="form-group">
-          <label>Numéro Téléphone / WhatsApp</label>
+          <label>Numéro Téléphone / WhatsApp *</label>
           <input type="text" class="form-control" id="custInputPhone" placeholder="Ex: 0707123456">
         </div>
         <div class="form-group">
-          <label>Dette Initiale (Optionnel - CFA)</label>
-          <input type="number" class="form-control" id="custInputDebt" placeholder="Ex: 0">
+          <label>Email (Optionnel)</label>
+          <input type="email" class="form-control" id="custInputEmail" placeholder="Ex: client@gmail.com">
+        </div>
+        <div class="form-group">
+          <label>Notes & Préférences (Optionnel)</label>
+          <input type="text" class="form-control" id="custInputNotes" placeholder="Ex: Client régulier, préfère livraison le matin">
         </div>
         <button class="btn-main" id="btnSaveCustomerSubmit" style="margin-top: 14px;">💾 Enregistrer le Client</button>
+        <button class="btn-main btn-secondary" id="btnDeleteCustomerModal" style="margin-top: 8px; color: var(--danger); display:none;">🗑️ Supprimer ce Client</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: HISTORIQUE ACHATS CLIENT (CRM) -->
+  <div class="modal-overlay" id="modalCustomerHistory">
+    <div class="bottom-sheet" style="max-height: 90vh;">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title" id="custHistModalTitle">👤 Fiche & Historique Client</div>
+        <button class="icon-btn close-modal">✕</button>
+      </div>
+      <div class="sheet-content">
+        <div id="custHistProfileCard" style="background: var(--surface-variant); padding: 14px; border-radius: 14px; margin-bottom: 14px; border: 1px solid var(--border);"></div>
+        <h4 style="font-size: 14px; margin-bottom: 8px;">Historique des Achats</h4>
+        <div id="custHistTicketsList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: RELANCES WHATSAPP CLIENT (1-CLICK CRM) -->
+  <div class="modal-overlay" id="modalCustomerRelance">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title">💬 Relance Commerciale WhatsApp</div>
+        <button class="icon-btn close-modal">✕</button>
+      </div>
+      <div class="sheet-content">
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;" id="relanceClientNameText">
+          Choisissez un modèle de message personnalisé pour ce client :
+        </p>
+        
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <button class="btn-main" id="btnRelanceFidelite" style="background: #25D366; margin:0; text-align:left; padding: 12px 14px; height:auto;">
+            <div style="font-weight:700; font-size:14px;">🎁 Remerciement & Fidélité</div>
+            <div style="font-size:11px; opacity:0.9; margin-top:2px;">Remercier le client pour sa fidélité et ses commandes régulières</div>
+          </button>
+
+          <button class="btn-main" id="btnRelancePromo" style="background: #0284C7; margin:0; text-align:left; padding: 12px 14px; height:auto;">
+            <div style="font-weight:700; font-size:14px;">📢 Nouveaux Arrivages & Offres</div>
+            <div style="font-size:11px; opacity:0.9; margin-top:2px;">Informer le client des nouveaux produits et promotions de la boutique</div>
+          </button>
+
+          <button class="btn-main" id="btnRelanceInactif" style="background: #F59E0B; margin:0; text-align:left; padding: 12px 14px; height:auto;">
+            <div style="font-weight:700; font-size:14px;">⏰ Réactivation (Client Inactif)</div>
+            <div style="font-size:11px; opacity:0.9; margin-top:2px;">Message chaleureux pour les clients qui ne sont pas revenus récemment</div>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: CODE APPS SCRIPT GOOGLE SHEETS -->
+  <div class="modal-overlay" id="modalAppsScript">
+    <div class="bottom-sheet" style="max-height: 92vh;">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div class="sheet-title">📊 Configuration Google Apps Script</div>
+        <button class="icon-btn close-modal">✕</button>
+      </div>
+      <div class="sheet-content">
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+          Suivez ces 3 étapes simples pour activer le suivi automatique en direct :
+        </p>
+        <ol style="font-size: 12px; line-height: 1.5; padding-left: 18px; margin-bottom: 12px; color: var(--text-main);">
+          <li>Créez un nouveau classeur vierge sur <strong>Google Sheets</strong>.</li>
+          <li>Cliquez sur <strong>Extensions ➔ Apps Script</strong>, effacez tout le code et collez le script ci-dessous.</li>
+          <li>Cliquez sur <strong>Déployer ➔ Nouveau déploiement ➔ Application Web</strong>, sélectionnez <em>Accès : Tout le monde (Anyone)</em>, copiez l'URL obtenue et collez-la dans les Paramètres SYPOS.</li>
+        </ol>
+
+        <textarea class="form-control" id="txtAppsScriptCode" readonly rows="8" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; resize: none; background: var(--bg-system); margin-bottom: 10px;"></textarea>
+        
+        <button class="btn-main" id="btnCopyAppsScriptCodeSubmit" style="margin:0; background: var(--primary);">
+          📋 Copier le Script Google Apps Script
+        </button>
       </div>
     </div>
   </div>

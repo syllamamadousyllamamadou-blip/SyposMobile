@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.sypos.mobile.data.local.ShopSettings
 import com.sypos.mobile.data.local.ShopSettingsManager
 import com.sypos.mobile.data.local.entity.ExpenseEntity
+import com.sypos.mobile.data.remote.CloudSyncManager
 import com.sypos.mobile.data.local.entity.PaymentMethod
 import com.sypos.mobile.data.local.entity.ProductEntity
 import com.sypos.mobile.data.local.entity.TicketEntity
@@ -19,6 +20,8 @@ import com.sypos.mobile.util.ZReportData
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import java.text.SimpleDateFormat
 import java.util.*
 import javax.inject.Inject
@@ -52,7 +55,9 @@ class ReportViewModel @Inject constructor(
     private val ticketRepository: TicketRepository,
     private val expenseRepository: ExpenseRepository,
     private val productRepository: ProductRepository,
-    private val shopSettingsManager: ShopSettingsManager
+    private val shopSettingsManager: ShopSettingsManager,
+    private val database: com.sypos.mobile.data.local.SyposDatabase,
+    private val cloudSyncManager: CloudSyncManager
 ) : ViewModel() {
 
     val settings: StateFlow<ShopSettings> = shopSettingsManager.settings
@@ -153,7 +158,7 @@ class ReportViewModel @Inject constructor(
         _selectedDateFilter.value = DateRangeFilter.CUSTOM
     }
 
-    fun addExpense(amount: Double, description: String, category: String?) {
+    fun addExpense(amount: Double, description: String, category: String?, context: Context) {
         viewModelScope.launch {
             val expense = ExpenseEntity(
                 date = System.currentTimeMillis(),
@@ -162,61 +167,153 @@ class ReportViewModel @Inject constructor(
                 category = category?.trim()
             )
             expenseRepository.insertExpense(expense)
+            val shopId = shopSettingsManager.getEffectiveShopId()
+            if (shopId.isNotBlank()) {
+                cloudSyncManager.pushExpense(shopId, expense)
+            }
+            
+            // Auto backup
+            launch {
+                try {
+                    val currentSettings = settings.value
+                    val json = com.sypos.mobile.util.BackupHelper.createBackupJson(database, currentSettings)
+                    val deviceId = com.sypos.mobile.util.DeviceSecurityHelper.getDeviceId(context).trim().uppercase(java.util.Locale.ROOT)
+                    val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                    db.collection("backups").document(deviceId).set(
+                        hashMapOf("timestamp" to com.google.firebase.Timestamp.now(), "data" to json, "shopName" to currentSettings.shopName)
+                    )
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
     fun deleteExpense(expense: ExpenseEntity) {
         viewModelScope.launch {
             expenseRepository.deleteExpense(expense)
+            val shopId = shopSettingsManager.getEffectiveShopId()
+            if (shopId.isNotBlank()) {
+                cloudSyncManager.deleteExpense(shopId, expense.id)
+            }
         }
     }
 
-    fun generateTodayZReport(): ZReportData {
-        val (start, end) = getDateBounds(DateRangeFilter.TODAY, null, null)
-        val todayTickets = allTickets.value.filter { it.status == TicketStatus.PAID && (start == null || it.date >= start) && (end == null || it.date <= end) }
-        val todayExpenses = allExpenses.value.filter { (start == null || it.date >= start) && (end == null || it.date <= end) }
-        val creditTickets = allTickets.value.filter { it.status == TicketStatus.CREDIT && (start == null || it.date >= start) && (end == null || it.date <= end) }
+    var zReportData = kotlinx.coroutines.flow.MutableStateFlow<ZReportData?>(null)
 
-        val totalSales = todayTickets.sumOf { it.totalAmount }
-        val totalExp = todayExpenses.sumOf { it.amount }
-        val cash = todayTickets.filter { it.paymentMethod == PaymentMethod.CASH }.sumOf { it.totalAmount }
-        val wave = todayTickets.filter { it.paymentMethod == PaymentMethod.WAVE }.sumOf { it.totalAmount }
-        val om = todayTickets.filter { it.paymentMethod == PaymentMethod.ORANGE_MONEY }.sumOf { it.totalAmount }
-        val mtn = todayTickets.filter { it.paymentMethod == PaymentMethod.MTN }.sumOf { it.totalAmount }
-        val moov = todayTickets.filter { it.paymentMethod == PaymentMethod.MOOV }.sumOf { it.totalAmount }
-        val card = todayTickets.filter { it.paymentMethod == PaymentMethod.CARD }.sumOf { it.totalAmount }
-        val credit = creditTickets.sumOf { it.totalAmount }
+    fun loadTodayZReport() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val (start, end) = getDateBounds(DateRangeFilter.TODAY, null, null)
+            val todayTickets = allTickets.value.filter { it.status == TicketStatus.PAID && (start == null || it.date >= start) && (end == null || it.date <= end) }
+            val todayExpenses = allExpenses.value.filter { (start == null || it.date >= start) && (end == null || it.date <= end) }
 
-        val netCash = (cash - totalExp)
+            var totalPurchaseCost = 0.0
+            val prods = allProducts.value
+            todayTickets.forEach { t ->
+                val items = ticketRepository.getItemsForTicketSync(t.id)
+                items.forEach { item ->
+                    val product = prods.find { it.id == item.productId }
+                    if (product != null) {
+                        totalPurchaseCost += (product.costPrice * item.quantity)
+                    }
+                }
+            }
 
-        val dateStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE).format(Date())
+            val totalSales = todayTickets.sumOf { it.totalAmount }
+            val totalExp = todayExpenses.sumOf { it.amount }
+            val cash = todayTickets.filter { it.paymentMethod == PaymentMethod.CASH }.sumOf { it.totalAmount }
+            val wave = todayTickets.filter { it.paymentMethod == PaymentMethod.WAVE }.sumOf { it.totalAmount }
+            val om = todayTickets.filter { it.paymentMethod == PaymentMethod.ORANGE_MONEY }.sumOf { it.totalAmount }
+            val mtn = todayTickets.filter { it.paymentMethod == PaymentMethod.MTN }.sumOf { it.totalAmount }
+            val moov = todayTickets.filter { it.paymentMethod == PaymentMethod.MOOV }.sumOf { it.totalAmount }
+            val card = todayTickets.filter { it.paymentMethod == PaymentMethod.CARD }.sumOf { it.totalAmount }
+            val credit = 0.0
 
-        return ZReportData(
-            dateText = dateStr,
-            totalSales = totalSales,
-            ticketsCount = todayTickets.size,
-            totalExpenses = totalExp,
-            cashSales = cash,
-            waveSales = wave,
-            orangeMoneySales = om,
-            mtnSales = mtn,
-            moovSales = moov,
-            cardSales = card,
-            creditSales = credit,
-            netCashInDrawer = netCash
-        )
+            val netCash = (cash - totalExp)
+
+            val dateStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE).format(Date())
+
+            zReportData.value = ZReportData(
+                dateText = dateStr,
+                totalSales = totalSales,
+                ticketsCount = todayTickets.size,
+                totalExpenses = totalExp,
+                cashSales = cash,
+                waveSales = wave,
+                orangeMoneySales = om,
+                mtnSales = mtn,
+                moovSales = moov,
+                cardSales = card,
+                creditSales = credit,
+                netCashInDrawer = netCash,
+                totalPurchaseCost = totalPurchaseCost
+            )
+        }
     }
 
     fun printZReport(context: Context, onResult: (Result<Unit>) -> Unit) {
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val printerAddress = settings.value.bluetoothPrinterAddress
             if (printerAddress.isNullOrBlank()) {
-                onResult(Result.failure(Exception("Aucune imprimante Bluetooth configurée dans les Paramètres")))
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    onResult(Result.failure(Exception("Aucune imprimante Bluetooth configurée dans les Paramètres")))
+                }
                 return@launch
             }
-            val zData = generateTodayZReport()
-            val result = BluetoothPrinterHelper.printZReport(context, printerAddress, zData, settings.value)
-            onResult(result)
+
+            // Calculate fresh Z-Report data
+            val (start, end) = getDateBounds(DateRangeFilter.TODAY, null, null)
+            val todayTickets = allTickets.value.filter { it.status == TicketStatus.PAID && (start == null || it.date >= start) && (end == null || it.date <= end) }
+            val todayExpenses = allExpenses.value.filter { (start == null || it.date >= start) && (end == null || it.date <= end) }
+
+            var totalPurchaseCost = 0.0
+            val prods = allProducts.value
+            todayTickets.forEach { t ->
+                val items = ticketRepository.getItemsForTicketSync(t.id)
+                items.forEach { item ->
+                    val product = prods.find { it.id == item.productId }
+                    if (product != null) {
+                        totalPurchaseCost += (product.costPrice * item.quantity)
+                    }
+                }
+            }
+
+            val totalSales = todayTickets.sumOf { it.totalAmount }
+            val totalExp = todayExpenses.sumOf { it.amount }
+            val cash = todayTickets.filter { it.paymentMethod == PaymentMethod.CASH }.sumOf { it.totalAmount }
+            val wave = todayTickets.filter { it.paymentMethod == PaymentMethod.WAVE }.sumOf { it.totalAmount }
+            val om = todayTickets.filter { it.paymentMethod == PaymentMethod.ORANGE_MONEY }.sumOf { it.totalAmount }
+            val mtn = todayTickets.filter { it.paymentMethod == PaymentMethod.MTN }.sumOf { it.totalAmount }
+            val moov = todayTickets.filter { it.paymentMethod == PaymentMethod.MOOV }.sumOf { it.totalAmount }
+            val card = todayTickets.filter { it.paymentMethod == PaymentMethod.CARD }.sumOf { it.totalAmount }
+            val credit = todayTickets.filter { it.paymentMethod == PaymentMethod.CREDIT }.sumOf { it.totalAmount }
+
+            val netCash = (cash - totalExp)
+            val dateStr = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE).format(Date())
+
+            val freshZData = ZReportData(
+                dateText = dateStr,
+                totalSales = totalSales,
+                ticketsCount = todayTickets.size,
+                totalExpenses = totalExp,
+                cashSales = cash,
+                waveSales = wave,
+                orangeMoneySales = om,
+                mtnSales = mtn,
+                moovSales = moov,
+                cardSales = card,
+                creditSales = credit,
+                netCashInDrawer = netCash,
+                totalPurchaseCost = totalPurchaseCost
+            )
+            
+            // Update UI state just in case
+            zReportData.value = freshZData
+
+            val result = BluetoothPrinterHelper.printZReport(context, printerAddress, freshZData, settings.value)
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onResult(result)
+            }
         }
     }
 

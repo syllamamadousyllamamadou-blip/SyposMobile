@@ -1,5 +1,6 @@
 package com.sypos.mobile.ui.product
 
+import com.sypos.mobile.util.CurrencyUtils.formatAmount
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -10,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,6 +20,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sypos.mobile.data.local.UserRole
 import com.sypos.mobile.data.local.entity.ProductEntity
@@ -36,8 +40,10 @@ fun ProductListScreen(
     val categories by viewModel.categories.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedCategoryId by viewModel.selectedCategoryId.collectAsState()
+    val settings by viewModel.settings.collectAsState()
 
     var showAddCategoryDialog by remember { mutableStateOf(false) }
+    var categoryToEdit by remember { mutableStateOf<com.sypos.mobile.data.local.entity.CategoryEntity?>(null) }
     var productToDelete by remember { mutableStateOf<ProductEntity?>(null) }
     var productToAdjustStock by remember { mutableStateOf<ProductEntity?>(null) }
 
@@ -124,21 +130,24 @@ fun ProductListScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text("Valeur Totale du Stock (Vente)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Valeur Stock", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         Text(
-                            text = String.format(Locale.FRANCE, "%,.0f CFA", totalSaleVal),
+                            text = totalSaleVal.formatAmount(settings.currency),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1
                         )
                     }
+                    Spacer(modifier = Modifier.width(8.dp))
                     Column(horizontalAlignment = Alignment.End) {
-                        Text("Articles / Pièces", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Articles", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         Text(
-                            text = "$totalStockQty pièces (${products.size} réf)",
+                            text = "$totalStockQty pcs (${products.size} réf)",
                             style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
                         )
                     }
                 }
@@ -177,6 +186,14 @@ fun ProductListScreen(
                                         .clip(CircleShape)
                                         .background(color)
                                 )
+                            }
+                        },
+                        trailingIcon = {
+                            IconButton(
+                                onClick = { categoryToEdit = cat; showAddCategoryDialog = true },
+                                modifier = Modifier.size(20.dp)
+                            ) {
+                                Icon(Icons.Default.Edit, contentDescription = "Editer", modifier = Modifier.size(14.dp))
                             }
                         },
                         shape = RoundedCornerShape(10.dp)
@@ -220,6 +237,7 @@ fun ProductListScreen(
                             product = product,
                             categoryName = category?.name,
                             categoryColorHex = category?.colorHex,
+                            settings = settings,
                             onEditClick = { onEditProductClick(product.id) },
                             onStockAdjustClick = { productToAdjustStock = product },
                             onDeleteClick = { productToDelete = product }
@@ -231,13 +249,23 @@ fun ProductListScreen(
     }
 
     if (showAddCategoryDialog) {
-        AddCategoryDialog(
-            onDismiss = { showAddCategoryDialog = false },
-            onConfirm = { viewModel.addCategory(it) }
+        AddEditCategoryDialog(
+            categoryToEdit = categoryToEdit,
+            onDismiss = { showAddCategoryDialog = false; categoryToEdit = null },
+            onConfirm = { cat ->
+                if (categoryToEdit == null) {
+                    viewModel.addCategory(cat)
+                } else {
+                    viewModel.updateCategory(cat)
+                }
+            },
+            onDelete = { cat ->
+                viewModel.deleteCategory(cat)
+            }
         )
     }
 
-    val settings by viewModel.settings.collectAsState()
+
 
     productToDelete?.let { product ->
         if (settings.pinLockEnabled) {
@@ -292,6 +320,7 @@ fun ProductListItem(
     product: ProductEntity,
     categoryName: String?,
     categoryColorHex: String?,
+    settings: com.sypos.mobile.data.local.ShopSettings,
     onEditClick: () -> Unit,
     onStockAdjustClick: () -> Unit,
     onDeleteClick: () -> Unit
@@ -343,12 +372,21 @@ fun ProductListItem(
                     .background(tagColor.copy(alpha = 0.2f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    Icons.Default.ShoppingBag,
-                    contentDescription = null,
-                    tint = tagColor,
-                    modifier = Modifier.size(24.dp)
-                )
+                if (product.imageUri != null && java.io.File(product.imageUri).exists()) {
+                    AsyncImage(
+                        model = product.imageUri,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.ShoppingBag,
+                        contentDescription = null,
+                        tint = tagColor,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -375,7 +413,7 @@ fun ProductListItem(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = String.format(Locale.FRANCE, "%,.0f CFA", product.salePrice),
+                        text = product.salePrice.formatAmount(settings.currency),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -482,3 +520,5 @@ fun StockAdjustDialog(
         }
     )
 }
+
+

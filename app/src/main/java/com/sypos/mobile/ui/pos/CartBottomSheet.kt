@@ -1,5 +1,6 @@
 package com.sypos.mobile.ui.pos
 
+import com.sypos.mobile.util.CurrencyUtils.formatAmount
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.sypos.mobile.data.local.ShopSettings
 import com.sypos.mobile.data.local.BusinessMode
 import com.sypos.mobile.data.local.entity.CustomerEntity
 import com.sypos.mobile.data.local.entity.OrderType
@@ -26,6 +28,7 @@ import java.util.Locale
 fun CartBottomSheet(
     uiState: PosUiState,
     businessMode: BusinessMode = BusinessMode.SUPERMARKET,
+    settings: ShopSettings,
     customers: List<CustomerEntity>,
     onIncreaseQuantity: (String) -> Unit,
     onDecreaseQuantity: (String) -> Unit,
@@ -141,11 +144,11 @@ fun CartBottomSheet(
                             text = {
                                 Column {
                                     Text(customer.name, fontWeight = FontWeight.Bold)
-                                    if (customer.totalDebt > 0) {
+                                    if (!customer.phone.isNullOrBlank()) {
                                         Text(
-                                            "Dette: ${String.format(Locale.FRANCE, "%,.0f CFA", customer.totalDebt)}",
+                                            customer.phone,
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.error
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
@@ -179,6 +182,7 @@ fun CartBottomSheet(
                     items(uiState.cartItems, key = { it.product.id }) { item ->
                         CartItemRow(
                             item = item,
+                            settings = settings,
                             onIncrease = { onIncreaseQuantity(item.product.id) },
                             onDecrease = { onDecreaseQuantity(item.product.id) },
                             onRemove = { onRemoveItem(item.product.id) }
@@ -262,7 +266,7 @@ fun CartBottomSheet(
                     ) {
                         Text("Remise appliquée :", style = MaterialTheme.typography.bodySmall)
                         Text(
-                            text = "-${String.format(Locale.FRANCE, "%,.0f CFA", uiState.discountAmount)}",
+                            text = "-${uiState.discountAmount.formatAmount(settings.currency)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                             fontWeight = FontWeight.Bold
@@ -277,7 +281,7 @@ fun CartBottomSheet(
                     ) {
                         Text("Sous-Total HT :", style = MaterialTheme.typography.bodySmall)
                         Text(
-                            text = String.format(Locale.FRANCE, "%,.0f CFA", uiState.netAfterDiscount),
+                            text = uiState.netAfterDiscount.formatAmount(settings.currency),
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
@@ -287,7 +291,7 @@ fun CartBottomSheet(
                     ) {
                         Text("TVA (${uiState.taxRatePercent.toInt()}%) :", style = MaterialTheme.typography.bodySmall)
                         Text(
-                            text = String.format(Locale.FRANCE, "%,.0f CFA", uiState.taxAmount),
+                            text = uiState.taxAmount.formatAmount(settings.currency),
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -302,7 +306,7 @@ fun CartBottomSheet(
                 ) {
                     Text(if (uiState.taxEnabled) "TOTAL TTC" else "TOTAL", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        text = String.format(Locale.FRANCE, "%,.0f CFA", uiState.totalAmount),
+                        text = uiState.totalAmount.formatAmount(settings.currency),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.primary
@@ -346,6 +350,7 @@ fun CartBottomSheet(
 @Composable
 fun CartItemRow(
     item: CartItem,
+    settings: com.sypos.mobile.data.local.ShopSettings,
     onIncrease: () -> Unit,
     onDecrease: () -> Unit,
     onRemove: () -> Unit
@@ -367,7 +372,7 @@ fun CartItemRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(item.product.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                 Text(
-                    text = "${String.format(Locale.FRANCE, "%,.0f", item.unitPrice)} CFA / u  (Stock: ${item.product.stockQuantity})",
+                    text = "${item.unitPrice.formatAmount(settings.currency)} / u  (Stock: ${item.product.stockQuantity})",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -418,7 +423,7 @@ fun CartItemRow(
             Spacer(modifier = Modifier.width(12.dp))
 
             Text(
-                text = String.format(Locale.FRANCE, "%,.0f CFA", item.total),
+                text = item.total.formatAmount(settings.currency),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
@@ -426,3 +431,4 @@ fun CartItemRow(
         }
     }
 }
+

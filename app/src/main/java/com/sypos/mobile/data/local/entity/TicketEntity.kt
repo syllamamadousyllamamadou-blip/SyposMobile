@@ -8,20 +8,26 @@ import java.util.UUID
 data class TicketEntity(
     @PrimaryKey
     val id: String = UUID.randomUUID().toString(),
-    val ticketNumber: String,
-    val date: Long,
-    val status: TicketStatus,
-    val orderType: OrderType,
-    val subTotal: Double,
-    val taxAmount: Double,
-    val totalAmount: Double,
-    val discount: Double,
-    val paymentMethod: PaymentMethod?,
-    val amountPaid: Double,
-    val changeReturned: Double,
-    val customerId: String?,
+    val ticketNumber: String = "",
+    val date: Long = 0L,
+    val status: TicketStatus = TicketStatus.PAID,
+    val orderType: OrderType = OrderType.DINE_IN,
+    val subTotal: Double = 0.0,
+    val taxAmount: Double = 0.0,
+    val totalAmount: Double = 0.0,
+    val discount: Double = 0.0,
+    val paymentMethod: PaymentMethod? = null,
+    val amountPaid: Double = 0.0,
+    val changeReturned: Double = 0.0,
+    val customerId: String? = null,
     val sellerName: String? = null,
-    val note: String? = null
+    val note: String? = null,
+    val splitCashAmount: Double? = null,
+    val splitOtherAmount: Double? = null,
+    val splitOtherMethod: PaymentMethod? = null,
+    val totalItemsCount: Int = 1,
+    val itemsSummary: String = "",
+    val totalPurchaseCost: Double = 0.0
 )
 
 enum class TicketStatus {
@@ -33,5 +39,5 @@ enum class OrderType {
 }
 
 enum class PaymentMethod {
-    CASH, WAVE, ORANGE_MONEY, MTN, MOOV, CARD, CREDIT
+    CASH, WAVE, ORANGE_MONEY, MTN, MOOV, CARD, SPLIT, CREDIT
 }

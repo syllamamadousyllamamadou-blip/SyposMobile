@@ -8,8 +8,8 @@ import java.util.UUID
 data class PromoCodeEntity(
     @PrimaryKey
     val id: String = UUID.randomUUID().toString(),
-    val code: String, // ex: "PROMO10", "SOLDES"
-    val discountPercent: Double, // ex: 10.0 for 10%
+    val code: String = "", // ex: "PROMO10", "SOLDES"
+    val discountPercent: Double = 0.0, // ex: 10.0 for 10%
     val maxUsage: Int = 100,
     val currentUsage: Int = 0,
     val isActive: Boolean = true,

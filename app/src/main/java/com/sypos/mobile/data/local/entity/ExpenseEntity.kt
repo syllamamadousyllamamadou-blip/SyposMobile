@@ -8,8 +8,8 @@ import java.util.UUID
 data class ExpenseEntity(
     @PrimaryKey
     val id: String = UUID.randomUUID().toString(),
-    val date: Long,
-    val amount: Double,
-    val description: String,
-    val category: String?
+    val date: Long = 0L,
+    val amount: Double = 0.0,
+    val description: String = "",
+    val category: String? = null
 )

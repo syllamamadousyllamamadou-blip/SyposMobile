@@ -9,6 +9,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/node-forge@1.3.1/dist/forge.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore-compat.js"></script>
     <style>
         :root {
             --primary: #3b82f6;
@@ -604,6 +607,18 @@
 <div class="toast" id="toastMsg">✅ Copié dans le presse-papier !</div>
 
 <script>
+    // --- FIREBASE INIT ---
+    const firebaseConfig = {
+      apiKey: "AIzaSyCO26JtJN8nAjrKPGok4JHI2jSb6wpfeLQ",
+      authDomain: "sypos-pro-e6745.firebaseapp.com",
+      projectId: "sypos-pro-e6745",
+      storageBucket: "sypos-pro-e6745.firebasestorage.app",
+      messagingSenderId: "651368642128",
+      appId: "1:651368642128:web:34f3ce5c96318c35ecc355"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
     // Embedded RSA-2048 Private Key (PKCS#1) for client-side cryptographic signing
     const PRIVATE_KEY_PEM = `-----BEGIN RSA PRIVATE KEY-----
 MIIEpAIBAAKCAQEAy4fzpl4lsQkScqSwHrAxCiUEndXd1Kop9u/kKdGtxmvvJzxD
@@ -755,9 +770,8 @@ QPOVK4+zglaLUWQ3vLXBKmIFxQdcw3HtuwA/8z8fF9jlBRxcr7egNw==
                 correctLevel: QRCode.CorrectLevel.M
             });
 
-            // Save to Local History
+            // Save to Cloud History
             saveToHistory(lic);
-            renderHistory();
             showToast('✅ Licence générée avec succès !');
         } catch (err) {
             console.error(err);
@@ -786,29 +800,23 @@ QPOVK4+zglaLUWQ3vLXBKmIFxQdcw3HtuwA/8z8fF9jlBRxcr7egNw==
     }
 
     // --- STORAGE & HISTORY ---
-    function getHistory() {
-        try {
-            return JSON.parse(localStorage.getItem('sypos_license_history') || '[]');
-        } catch (e) {
-            return [];
-        }
-    }
+    let globalLicenseList = [];
 
-    function saveToHistory(lic) {
-        let list = getHistory();
-        list = list.filter(item => item.token !== lic.token);
-        list.unshift(lic);
-        localStorage.setItem('sypos_license_history', JSON.stringify(list));
-        updateStats(list);
+    async function saveToHistory(lic) {
+        try {
+            await db.collection('licenses').doc(lic.devId).set(lic);
+        } catch (e) {
+            console.error("Erreur de sauvegarde Firebase:", e);
+            showToast("⚠️ Erreur de sauvegarde Cloud");
+        }
     }
 
     function renderHistory() {
         const query = (document.getElementById('searchBox').value || '').toLowerCase();
-        const list = getHistory();
         const tbody = document.getElementById('historyTableBody');
         tbody.innerHTML = '';
 
-        const filtered = list.filter(item => 
+        const filtered = globalLicenseList.filter(item => 
             item.shop.toLowerCase().includes(query) || 
             item.devId.toLowerCase().includes(query)
         );
@@ -839,12 +847,11 @@ QPOVK4+zglaLUWQ3vLXBKmIFxQdcw3HtuwA/8z8fF9jlBRxcr7egNw==
             tbody.appendChild(tr);
         });
 
-        updateStats(list);
+        updateStats(globalLicenseList);
     }
 
     function restoreLicense(token) {
-        const list = getHistory();
-        const lic = list.find(l => l.token === token);
+        const lic = globalLicenseList.find(l => l.token === token);
         if (!lic) return;
         currentLicense = lic;
 
@@ -874,7 +881,7 @@ QPOVK4+zglaLUWQ3vLXBKmIFxQdcw3HtuwA/8z8fF9jlBRxcr7egNw==
     }
 
     function exportHistoryCsv() {
-        const list = getHistory();
+        const list = globalLicenseList;
         if (list.length === 0) {
             alert("Aucune licence à exporter.");
             return;
@@ -898,7 +905,13 @@ QPOVK4+zglaLUWQ3vLXBKmIFxQdcw3HtuwA/8z8fF9jlBRxcr7egNw==
     }
 
     function loadInitialData() {
-        renderHistory();
+        db.collection('licenses').orderBy('iat', 'desc').onSnapshot((snapshot) => {
+            globalLicenseList = [];
+            snapshot.forEach((doc) => {
+                globalLicenseList.push(doc.data());
+            });
+            renderHistory();
+        });
     }
 
     window.onload = function() {

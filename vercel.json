@@ -1,11 +1,11 @@
 {
   "version": 2,
-  "name": "sypos-license-portal",
+  "name": "sypos-mobile-pwa",
   "cleanUrls": true,
   "rewrites": [
     {
       "source": "/(.*)",
-      "destination": "/index.html"
+      "destination": "/web/$1"
     }
   ]
 }

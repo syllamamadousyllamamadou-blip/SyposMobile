@@ -8,6 +8,6 @@ import java.util.UUID
 data class CategoryEntity(
     @PrimaryKey
     val id: String = UUID.randomUUID().toString(),
-    val name: String,
-    val colorHex: String?
+    val name: String = "",
+    val colorHex: String? = null
 )
